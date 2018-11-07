@@ -206,6 +206,63 @@ public:
         this->updateGridView_();
     }
 
+
+    void writeTransmissibilitiesWithAdjecencyPattern()
+    {
+        globalTrans_ = new EclTransmissibility<TypeTag>(*this);
+        globalTrans_->update();
+        
+        const auto& gridView = grid_->leafGridView();
+        unsigned numFaces = grid_->numFaces();
+        std::vector<double> faceTrans(numFaces, 0.0);
+        unsigned numSharedFaces = 0;
+        auto lid = grid_->localIdSet();
+        
+        auto elemIt = gridView.template begin<0>();
+        const auto& elemEndIt = gridView.template end<0>();
+        for (; elemIt != elemEndIt; ++ elemIt) {
+            const auto& elem = *elemIt;
+            auto isIt = gridView.ibegin(elem);
+            const auto& isEndIt = gridView.iend(elem);
+            for (; isIt != isEndIt; ++ isIt) {
+                const auto& is = *isIt;
+                if (!is.neighbor())
+                    continue;
+                
+                numSharedFaces++;
+                unsigned I = lid.id(is.inside());
+                unsigned J = lid.id(is.outside());
+                unsigned faceIdx = is.id();
+                
+                faceTrans[faceIdx] = globalTrans_->transmissibility(I, J);
+            }
+        }
+        
+        std::ofstream myfile ("transAdj.mtx");
+        int t_nnz = numSharedFaces;//2*faceTrans.size();
+        int t_N = grid_->numCells();
+        myfile <<t_N <<" " <<t_N<< " "<< t_nnz <<" \n";
+        
+        elemIt = gridView.template begin<0>();
+        //const auto& elemEndIt = gridView.template end<0>();
+        for (; elemIt != elemEndIt; ++ elemIt) {
+            const auto& elem = *elemIt;
+            auto isIt = gridView.ibegin(elem);
+            const auto& isEndIt = gridView.iend(elem);
+            for (; isIt != isEndIt; ++ isIt) {
+                const auto& is = *isIt;
+                if (!is.neighbor())
+                    continue;
+                
+                unsigned I = lid.id(is.inside()) + 1;
+                unsigned J = lid.id(is.outside()) + 1;
+                unsigned faceIdx = is.id();
+                myfile << I<<" " <<J << " "<< faceTrans[faceIdx]<<" \n";
+            }
+        }
+        myfile.close();
+    }
+
     /*!
      * \brief Free the memory occupied by the global transmissibility object.
      *
