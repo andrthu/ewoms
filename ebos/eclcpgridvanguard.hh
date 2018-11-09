@@ -209,58 +209,75 @@ public:
 
     void writeTransmissibilitiesWithAdjecencyPattern()
     {
-        globalTrans_ = new EclTransmissibility<TypeTag>(*this);
-        globalTrans_->update();
-        
-        const auto& gridView = grid_->leafGridView();
-        unsigned numFaces = grid_->numFaces();
-        std::vector<double> faceTrans(numFaces, 0.0);
-        unsigned numSharedFaces = 0;
-        auto lid = grid_->localIdSet();
-        
-        auto elemIt = gridView.template begin<0>();
-        const auto& elemEndIt = gridView.template end<0>();
-        for (; elemIt != elemEndIt; ++ elemIt) {
-            const auto& elem = *elemIt;
-            auto isIt = gridView.ibegin(elem);
-            const auto& isEndIt = gridView.iend(elem);
-            for (; isIt != isEndIt; ++ isIt) {
-                const auto& is = *isIt;
-                if (!is.neighbor())
-                    continue;
+        if (grid_->comm().size()==1)
+        {
+            globalTrans_ = new EclTransmissibility<TypeTag>(*this);
+            globalTrans_->update();
+            
+            const auto& gridView = grid_->leafGridView();
+            unsigned numFaces = grid_->numFaces();
+            std::vector<double> faceTrans(numFaces, 0.0);
+            unsigned numSharedFaces = 0;
+            auto lid = grid_->localIdSet();
+            
+            auto elemIt = gridView.template begin<0>();
+            const auto& elemEndIt = gridView.template end<0>();
+            for (; elemIt != elemEndIt; ++ elemIt) {
+                const auto& elem = *elemIt;
+                auto isIt = gridView.ibegin(elem);
+                const auto& isEndIt = gridView.iend(elem);
+                for (; isIt != isEndIt; ++ isIt) {
+                    const auto& is = *isIt;
+                    if (!is.neighbor())
+                        continue;
+                    
+                    numSharedFaces++;
+                    unsigned I = lid.id(is.inside());
+                    unsigned J = lid.id(is.outside());
+                    unsigned faceIdx = is.id();
                 
-                numSharedFaces++;
-                unsigned I = lid.id(is.inside());
-                unsigned J = lid.id(is.outside());
-                unsigned faceIdx = is.id();
-                
-                faceTrans[faceIdx] = globalTrans_->transmissibility(I, J);
+                    faceTrans[faceIdx] = globalTrans_->transmissibility(I, J);
+                }
             }
-        }
-        
-        std::ofstream myfile ("transAdj.mtx");
-        int t_nnz = numSharedFaces;//2*faceTrans.size();
-        int t_N = grid_->numCells();
-        myfile <<t_N <<" " <<t_N<< " "<< t_nnz <<" \n";
-        
-        elemIt = gridView.template begin<0>();
-        //const auto& elemEndIt = gridView.template end<0>();
-        for (; elemIt != elemEndIt; ++ elemIt) {
-            const auto& elem = *elemIt;
-            auto isIt = gridView.ibegin(elem);
-            const auto& isEndIt = gridView.iend(elem);
-            for (; isIt != isEndIt; ++ isIt) {
-                const auto& is = *isIt;
-                if (!is.neighbor())
-                    continue;
-                
-                unsigned I = lid.id(is.inside()) + 1;
-                unsigned J = lid.id(is.outside()) + 1;
-                unsigned faceIdx = is.id();
-                myfile << I<<" " <<J << " "<< faceTrans[faceIdx]<<" \n";
+            
+            std::ofstream matTransFile ("transAdj.mtx");
+            
+            int t_nnz = numSharedFaces;//2*faceTrans.size();
+            int t_N = grid_->numCells();
+            matTransFile <<t_N <<" " <<t_N<< " "<< t_nnz <<" \n";
+                        
+
+            elemIt = gridView.template begin<0>();
+            //const auto& elemEndIt = gridView.template end<0>();
+            for (; elemIt != elemEndIt; ++ elemIt) {
+                const auto& elem = *elemIt;
+                auto isIt = gridView.ibegin(elem);
+                const auto& isEndIt = gridView.iend(elem);
+                for (; isIt != isEndIt; ++ isIt) {
+                    const auto& is = *isIt;
+                    
+                    
+                    if (!is.neighbor()) 
+                        continue;
+                        
+                    
+                    
+                    unsigned faceIdx = is.id();
+                    unsigned I = lid.id(is.inside()) + 1;
+                    unsigned J = lid.id(is.outside()) + 1;
+                    matTransFile <<I<<" " <<J <<" "<< faceTrans[faceIdx]<<" \n";
+                    
+                }
             }
+            matTransFile.close();
+
+            std::ofstream fullTransFile ("fullTrans.txt");
+            for (int face = 0; face<grid_->numFaces(); ++face)
+            {
+                fullTransFile<<faceTrans[face]<<" \n";
+            }
+            fullTransFile.close();
         }
-        myfile.close();
     }
 
     /*!
