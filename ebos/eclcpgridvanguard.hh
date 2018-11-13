@@ -205,7 +205,7 @@ public:
 
         this->updateGridView_();
     }
-
+    
 
     void writeTransmissibilitiesWithAdjecencyPattern()
     {
@@ -255,13 +255,9 @@ public:
                 const auto& isEndIt = gridView.iend(elem);
                 for (; isIt != isEndIt; ++ isIt) {
                     const auto& is = *isIt;
-                    
-                    
                     if (!is.neighbor()) 
                         continue;
-                        
-                    
-                    
+                          
                     unsigned faceIdx = is.id();
                     unsigned I = lid.id(is.inside()) + 1;
                     unsigned J = lid.id(is.outside()) + 1;
@@ -277,6 +273,28 @@ public:
                 fullTransFile<<faceTrans[face]<<" \n";
             }
             fullTransFile.close();
+
+            //write out well adjecency also
+            /*
+            const auto wells = this->schedule().getWells();
+            std::ofstream wellFile ("wellAdj.mtx");
+            
+            wellFile << t_N << " " << t_N <<" \n";
+            
+            int wellNum = 0;
+            for (auto well=wells.begin();well!=wells.end(); ++well)
+            {
+                for (auto well_cell = well.begin(); well_cell != well.end(); ++well_cell)
+                {
+                    for (auto well_cell2 = well.begin(); well_cell2 != well.end(); ++well_cell2)
+                    {
+                        wellFile<< *well_cell << " " << *well_cell2 << " " << wellNum << " \n";
+                    }
+                }
+                wellNum++;
+            }
+            wellFile.close();
+            */
         }
     }
 
