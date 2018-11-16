@@ -31,6 +31,7 @@
 #include "ecltransmissibility.hh"
 #include "femcpgridcompat.hh"
 
+#include <opm/grid/common/WellConnections.hpp>
 #include <opm/grid/CpGrid.hpp>
 #include <opm/grid/cpgrid/GridHelpers.hpp>
 
@@ -206,6 +207,48 @@ public:
         this->updateGridView_();
     }
     
+    
+    void writeWells(const std::vector<const Dune::cpgrid::OpmWellType *> * wells, int t_N)
+    {
+        const auto& cpgdim = grid_->logicalCartesianSize();
+        
+        // create compressed lookup from cartesian.
+        std::vector<int> cartesian_to_compressed(cpgdim[0]*cpgdim[1]*cpgdim[2], -1);
+    
+        for( int i=0; i < grid_->numCells(); ++i )
+        {
+            cartesian_to_compressed[grid_->globalCell()[i]] = i;
+        }
+        
+        Dune::cpgrid::WellConnections well_connections(*wells,cpgdim,cartesian_to_compressed);
+
+        
+        std::ofstream wellFile ("wellAdj.mtx");
+        
+        wellFile << t_N << " " << t_N <<" \n";
+        
+        int wellNum = 0;
+        
+        for (const auto& well : well_connections)
+        {
+            for (auto well_cell = well.begin(); well_cell != well.end(); ++well_cell)
+            {
+                for (auto well_cell2 = well.begin(); well_cell2 != well.end(); ++well_cell2)
+                {
+                    if (*well_cell!=*well_cell2)
+                    {
+                        int row_out = *well_cell + 1;
+                        int col_out = *well_cell2 + 1;
+                        wellFile<< row_out << " " << col_out << " " << wellNum << " \n";
+                    }
+                }
+            }
+            wellNum++;
+        }
+        
+        wellFile.close();
+            
+    }
 
     void writeTransmissibilitiesWithAdjecencyPattern()
     {
@@ -273,28 +316,9 @@ public:
                 fullTransFile<<faceTrans[face]<<" \n";
             }
             fullTransFile.close();
-
-            //write out well adjecency also
-            /*
-            const auto wells = this->schedule().getWells();
-            std::ofstream wellFile ("wellAdj.mtx");
+            const auto wells = this->schedule().getWells(); 
+            writeWells(&wells, t_N);
             
-            wellFile << t_N << " " << t_N <<" \n";
-            
-            int wellNum = 0;
-            for (auto well=wells.begin();well!=wells.end(); ++well)
-            {
-                for (auto well_cell = well.begin(); well_cell != well.end(); ++well_cell)
-                {
-                    for (auto well_cell2 = well.begin(); well_cell2 != well.end(); ++well_cell2)
-                    {
-                        wellFile<< *well_cell << " " << *well_cell2 << " " << wellNum << " \n";
-                    }
-                }
-                wellNum++;
-            }
-            wellFile.close();
-            */
         }
     }
 
