@@ -60,6 +60,8 @@
 #include "ecldummygradientcalculator.hh"
 #include "eclfluxmodule.hh"
 #include "eclbaseaquifermodel.hh"
+#include "ecltracermodel.hh"
+#include "vtkecltracermodule.hh"
 
 #include <ewoms/common/pffgridvector.hh>
 #include <ewoms/models/blackoil/blackoilmodel.hh>
@@ -108,7 +110,7 @@ BEGIN_PROPERTIES
 #if EBOS_USE_ALUGRID
 NEW_TYPE_TAG(EclBaseProblem, INHERITS_FROM(EclAluGridVanguard, EclOutputBlackOil));
 #else
-NEW_TYPE_TAG(EclBaseProblem, INHERITS_FROM(EclCpGridVanguard, EclOutputBlackOil));
+NEW_TYPE_TAG(EclBaseProblem, INHERITS_FROM(EclCpGridVanguard, EclOutputBlackOil, VtkEclTracer));
 //NEW_TYPE_TAG(EclBaseProblem, INHERITS_FROM(EclPolyhedralGridVanguard, EclOutputBlackOil));
 #endif
 
@@ -300,6 +302,8 @@ SET_BOOL_PROP(EclBaseProblem, EnableEnergy, false);
 // disable thermal flux boundaries by default
 SET_BOOL_PROP(EclBaseProblem, EnableThermalFluxBoundaries, false);
 
+SET_BOOL_PROP(EclBaseProblem, EnableTracerModel, false);
+
 END_PROPERTIES
 
 namespace Ewoms {
@@ -369,6 +373,8 @@ class EclProblem : public GET_PROP_TYPE(TypeTag, BaseProblem)
 
     typedef EclWriter<TypeTag> EclWriterType;
 
+    typedef EclTracerModel<TypeTag> TracerModel;
+
     typedef typename GridView::template Codim<0>::Iterator ElementIterator;
 
     struct RockParams {
@@ -384,6 +390,7 @@ public:
     {
         ParentType::registerParameters();
         EclWriterType::registerParameters();
+        VtkEclTracerModule<TypeTag>::registerParameters();
 
         EWOMS_REGISTER_PARAM(TypeTag, bool, EnableWriteAllSolutions,
                              "Write all solutions to disk instead of only the ones for the "
@@ -395,6 +402,8 @@ public:
                              "Tell the output writer to use double precision. Useful for 'perfect' restarts");
         EWOMS_REGISTER_PARAM(TypeTag, unsigned, RestartWritingInterval,
                              "The frequencies of which time steps are serialized to disk");
+        EWOMS_REGISTER_PARAM(TypeTag, bool, EnableTracerModel,
+                             "Transport tracers found in the deck.");
     }
 
     /*!
@@ -492,7 +501,9 @@ public:
         , wellModel_(simulator)
         , aquiferModel_(simulator)
         , pffDofData_(simulator.gridView(), this->elementMapper())
+        , tracerModel_(simulator)
     {
+        this->model().addOutputModule(new VtkEclTracerModule<TypeTag>(simulator));
         // Tell the black-oil extensions to initialize their internal data structures
         const auto& vanguard = simulator.vanguard();
         SolventModule::initFromDeck(vanguard.deck(), vanguard.eclState());
@@ -579,6 +590,8 @@ public:
             eclWriter_->writeInit();
             this->simulator().vanguard().releaseGlobalTransmissibilities();
         }
+
+        tracerModel_.init();
     }
 
     void prefetch(const Element& elem) const
@@ -722,6 +735,8 @@ public:
         }
 
         aquiferModel_.beginTimeStep();
+        tracerModel_.beginTimeStep();
+
     }
 
     /*!
@@ -765,6 +780,8 @@ public:
             wellModel_.endTimeStep();
 
         aquiferModel_.endTimeStep();
+        tracerModel_.endTimeStep();
+
 
         // we no longer need the initial soluiton
         if (this->simulator().episodeIndex() == 0 && !initialFluidStates_.empty())  {
@@ -949,6 +966,9 @@ public:
 
     EclThresholdPressure<TypeTag>& thresholdPressure()
     { return thresholdPressures_; }
+
+    const EclTracerModel<TypeTag>& tracerModel() const
+    { return tracerModel_; }
 
     /*!
      * \copydoc FvBaseMultiPhaseProblem::porosity
@@ -1779,6 +1799,10 @@ private:
             if (enablePolymer)
                  polymerConcentration_[elemIdx] = eclWriter_->eclOutputModule().getPolymerConcentration(elemIdx);
         }
+
+        if (tracerModel().numTracers() > 0)
+            std::cout << "Warning: Restart is not implemented for the tracer model, it will initialize with initial tracer concentration" << std::endl;
+
     }
 
     void readExplicitInitialCondition_()
@@ -2128,10 +2152,11 @@ private:
 
     EclWellModel wellModel_;
     EclAquiferModel aquiferModel_;
-
     std::unique_ptr<EclWriterType> eclWriter_;
 
     PffGridVector<GridView, Stencil, PffDofData_, DofMapper> pffDofData_;
+    TracerModel tracerModel_;
+
 
 };
 
