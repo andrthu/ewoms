@@ -157,7 +157,10 @@ public:
             cartesianIndexMapper_ = new CartesianIndexMapper(*grid_);
             globalTrans_ = new EclTransmissibility<TypeTag>(*this);
             globalTrans_->update();
-
+            
+            bool useTransWeights = this->useTransWeights();
+            if (!useTransWeights && mpiRank==0)
+                std::cout << "We are using uniform edge-weights" << std::endl; 
             // convert to transmissibility for faces
             // TODO: grid_->numFaces() is not generic. use grid_->size(1) instead? (might
             // not work)
@@ -193,7 +196,7 @@ public:
             //distribute the grid and switch to the distributed view.
             {
                 const auto wells = this->schedule().getWells();
-                defunctWellNames_ = std::get<1>(grid_->loadBalance(&wells, faceTrans.data()));
+                defunctWellNames_ = std::get<1>(grid_->loadBalance(&wells, faceTrans.data(), useTransWeights));
             }
             grid_->switchToDistributedView();
 
@@ -210,32 +213,25 @@ public:
     
     void writeWells(const std::vector<const Dune::cpgrid::OpmWellType *> * wells, int t_N)
     {
+        //Set up well connections as is done in opm-grids partitioner.
         const auto& cpgdim = grid_->logicalCartesianSize();
-        
-        // create compressed lookup from cartesian.
         std::vector<int> cartesian_to_compressed(cpgdim[0]*cpgdim[1]*cpgdim[2], -1);
-    
-        for( int i=0; i < grid_->numCells(); ++i )
-        {
+        for( int i = 0; i < grid_->numCells(); ++i )
             cartesian_to_compressed[grid_->globalCell()[i]] = i;
-        }
-        
-        Dune::cpgrid::WellConnections well_connections(*wells,cpgdim,cartesian_to_compressed);
+        Dune::cpgrid::WellConnections well_connections(*wells, cpgdim,cartesian_to_compressed);
 
-        
-        std::ofstream wellFile ("wellAdj.mtx");
-        
-        wellFile << t_N << " " << t_N <<" \n";
-        
+        std::ofstream wellFile("wellAdj.mtx");        
+        wellFile << t_N << " " << t_N << " \n";
+
         int wellNum = 0;
-        
+
         for (const auto& well : well_connections)
         {
             for (auto well_cell = well.begin(); well_cell != well.end(); ++well_cell)
             {
                 for (auto well_cell2 = well.begin(); well_cell2 != well.end(); ++well_cell2)
                 {
-                    if (*well_cell!=*well_cell2)
+                    if (*well_cell != *well_cell2)
                     {
                         int row_out = *well_cell + 1;
                         int col_out = *well_cell2 + 1;
@@ -245,9 +241,7 @@ public:
             }
             wellNum++;
         }
-        
-        wellFile.close();
-            
+        wellFile.close();   
     }
 
     void writeTransmissibilitiesWithAdjecencyPattern()
@@ -265,11 +259,12 @@ public:
             
             auto elemIt = gridView.template begin<0>();
             const auto& elemEndIt = gridView.template end<0>();
-            for (; elemIt != elemEndIt; ++ elemIt) {
+            for (; elemIt != elemEndIt; ++elemIt) {
                 const auto& elem = *elemIt;
                 auto isIt = gridView.ibegin(elem);
                 const auto& isEndIt = gridView.iend(elem);
-                for (; isIt != isEndIt; ++ isIt) {
+
+                for (; isIt != isEndIt; ++isIt) {
                     const auto& is = *isIt;
                     if (!is.neighbor())
                         continue;
@@ -283,20 +278,21 @@ public:
                 }
             }
             
-            std::ofstream matTransFile ("transAdj.mtx");
+            std::ofstream matTransFile("transAdj.mtx");
             
             int t_nnz = numSharedFaces;//2*faceTrans.size();
             int t_N = grid_->numCells();
-            matTransFile <<t_N <<" " <<t_N<< " "<< t_nnz <<" \n";
-                        
+            matTransFile <<t_N <<" " <<t_N<< " "<< t_nnz << " \n";
 
             elemIt = gridView.template begin<0>();
             //const auto& elemEndIt = gridView.template end<0>();
-            for (; elemIt != elemEndIt; ++ elemIt) {
+            for (; elemIt != elemEndIt; ++elemIt) {
+                
                 const auto& elem = *elemIt;
                 auto isIt = gridView.ibegin(elem);
                 const auto& isEndIt = gridView.iend(elem);
-                for (; isIt != isEndIt; ++ isIt) {
+                
+                for (; isIt != isEndIt; ++isIt) {
                     const auto& is = *isIt;
                     if (!is.neighbor()) 
                         continue;
@@ -305,7 +301,6 @@ public:
                     unsigned I = lid.id(is.inside()) + 1;
                     unsigned J = lid.id(is.outside()) + 1;
                     matTransFile <<I<<" " <<J <<" "<< faceTrans[faceIdx]<<" \n";
-                    
                 }
             }
             matTransFile.close();
@@ -318,7 +313,6 @@ public:
             fullTransFile.close();
             const auto wells = this->schedule().getWells(); 
             writeWells(&wells, t_N);
-            
         }
     }
 
