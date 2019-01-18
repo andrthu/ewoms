@@ -158,8 +158,9 @@ public:
             globalTrans_ = new EclTransmissibility<TypeTag>(*this);
             globalTrans_->update();
             
-            bool useTransWeights = this->useTransWeights();
-            if (!useTransWeights && mpiRank==0)
+            bool useObjWgt = this->useObjWgt();
+            int edgeWeightsMethod = this->edgeWeightsMethod();
+            if (edgeWeightsMethod == 0 && mpiRank==0)
                 std::cout << "We are using uniform edge-weights" << std::endl; 
             // convert to transmissibility for faces
             // TODO: grid_->numFaces() is not generic. use grid_->size(1) instead? (might
@@ -196,7 +197,7 @@ public:
             //distribute the grid and switch to the distributed view.
             {
                 const auto wells = this->schedule().getWells();
-                defunctWellNames_ = std::get<1>(grid_->loadBalance(&wells, faceTrans.data(), useTransWeights));
+                defunctWellNames_ = std::get<1>(grid_->loadBalance(&wells, faceTrans.data(), edgeWeightsMethod, useObjWgt, 1));
             }
             grid_->switchToDistributedView();
 

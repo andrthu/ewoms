@@ -125,7 +125,7 @@ public:
             std::cout << "Distributing the vanguard data\n" << std::flush;
         vanguard_->loadBalance();
         
-        vanguard_->writeTransmissibilitiesWithAdjecencyPattern();
+        //vanguard_->writeTransmissibilitiesWithAdjecencyPattern();
 
         if (verbose_)
             std::cout << "Allocating the model\n" << std::flush;

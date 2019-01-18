@@ -66,13 +66,15 @@ NEW_PROP_TAG(OutputDir);
 NEW_PROP_TAG(EnableOpmRstFile);
 NEW_PROP_TAG(EclOutputInterval);
 NEW_PROP_TAG(IgnoreKeywords);
-NEW_PROP_TAG(UseTransWeights);
+NEW_PROP_TAG(UseObjWgt);
+NEW_PROP_TAG(EdgeWeightsMethod);
 
 SET_STRING_PROP(EclBaseVanguard, IgnoreKeywords, "");
 SET_STRING_PROP(EclBaseVanguard, EclDeckFileName, "");
 SET_INT_PROP(EclBaseVanguard, EclOutputInterval, -1); // use the deck-provided value
 SET_BOOL_PROP(EclBaseVanguard, EnableOpmRstFile, true);
-SET_BOOL_PROP(EclBaseVanguard, UseTransWeights, true);
+SET_BOOL_PROP(EclBaseVanguard, UseObjWgt, false);
+SET_INT_PROP(EclBaseVanguard, EdgeWeightsMethod, 1);
 
 END_PROPERTIES
 
@@ -112,8 +114,10 @@ public:
                              "Include OPM-specific keywords in the ECL restart file to enable restart of OPM simulators from these files");
         EWOMS_REGISTER_PARAM(TypeTag, std::string, IgnoreKeywords,
                              "List of Eclipse keywords which should be ignored. As a ':' separated string.");
-        EWOMS_REGISTER_PARAM(TypeTag, bool, UseTransWeights,
-                             "Use transmissibility edge-weights in the loadbalancer.");
+        EWOMS_REGISTER_PARAM(TypeTag, bool, UseObjWgt,
+                             "Use vertex weights in the load balancer.");
+        EWOMS_REGISTER_PARAM(TypeTag, int, EdgeWeightsMethod,
+                             "Choose edge-weighing strategy: 0=uniform, 1=trans, 2=log(trans).");
     }
 
     /*!
@@ -177,7 +181,8 @@ public:
         MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
 #endif
         
-        useTransWeights_ = EWOMS_GET_PARAM(TypeTag, bool, UseTransWeights);
+        useObjWgt_ = EWOMS_GET_PARAM(TypeTag, bool, UseObjWgt);
+        edgeWeightsMethod_ = EWOMS_GET_PARAM(TypeTag, int, EdgeWeightsMethod);
         std::string fileName = EWOMS_GET_PARAM(TypeTag, std::string, EclDeckFileName);
 
         if (fileName == "")
@@ -298,11 +303,20 @@ public:
     /*!
      * \brief Use transmissibility edge-weights or not in loadbalancer.
      */
-    const bool useTransWeights() const
-    { return useTransWeights_;}
+    const bool useObjWgt() const
+    { return useObjWgt_; }
 
-    bool useTransWeights()
-    { return useTransWeights_;}
+    bool useObjWgt()
+    { return useObjWgt_; }
+    
+    /*!
+     * \brief Parameter deciding the edge-weight strategy of the load balancer.
+     */
+    int edgeWeightsMethod() const
+    { return edgeWeightsMethod_; }
+
+    int edgeWeightsMethod()
+    { return edgeWeightsMethod_; }
 
     /*!
      * \brief Return a reference to the internalized ECL deck.
@@ -483,7 +497,8 @@ private:
     Opm::Schedule* eclSchedule_;
     Opm::SummaryConfig* eclSummaryConfig_;
 
-    bool useTransWeights_;
+    bool useObjWgt_;
+    int edgeWeightsMethod_;
 };
 
 template <class TypeTag>
