@@ -90,6 +90,7 @@ class BlackOilPrimaryVariables : public FvBasePrimaryVariables<TypeTag>
     enum { numComponents = GET_PROP_VALUE(TypeTag, NumComponents) };
     enum { enableSolvent = GET_PROP_VALUE(TypeTag, EnableSolvent) };
     enum { enablePolymer = GET_PROP_VALUE(TypeTag, EnablePolymer) };
+    enum { enablePolymerMW = GET_PROP_VALUE(TypeTag, EnablePolymerMW) };
     enum { enableEnergy = GET_PROP_VALUE(TypeTag, EnableEnergy) };
     enum { gasCompIdx = FluidSystem::gasCompIdx };
     enum { waterCompIdx = FluidSystem::waterCompIdx };
@@ -242,24 +243,6 @@ public:
         assignNaive(fsFlash);
     }
 
-    template <class FluidState, class SolventContainer>
-    void assignMassConservative(const FluidState& fluidState,
-                                const MaterialLawParams& matParams,
-                                Scalar solSat,
-                                bool isInEquilibrium = false)
-    {
-        assignMassConservative(fluidState, matParams, isInEquilibrium);
-
-        // set the primary variables of the solvent module
-        SolventModule::assignPrimaryVars(*this, solSat);
-
-        // set the primary variables of the polymer module
-        PolymerModule::assignPrimaryVars(*this, solSat);
-
-        // set the primary variables of the energy module
-        EnergyModule::assignPrimaryVars(*this, solSat);
-    }
-
     /*!
      * \copydoc ImmisciblePrimaryVariables::assignNaive
      */
@@ -393,7 +376,7 @@ public:
                 Scalar po = (*this)[Indices::pressureSwitchIdx];
                 Scalar T = asImp_().temperature_();
                 Scalar SoMax = problem.maxOilSaturation(globalDofIdx);
-                Scalar RsMax = problem.maxGasDissolutionFactor(globalDofIdx);
+                Scalar RsMax = problem.maxGasDissolutionFactor(/*timeIdx=*/0, globalDofIdx);
                 Scalar RsSat = FluidSystem::oilPvt().saturatedGasDissolutionFactor(pvtRegionIdx_,
                                                                                    T,
                                                                                    po,
@@ -424,7 +407,7 @@ public:
                 // hydrocarbon gas
                 Scalar T = asImp_().temperature_();
                 Scalar SoMax = problem.maxOilSaturation(globalDofIdx);
-                Scalar RvMax = problem.maxOilVaporizationFactor(globalDofIdx);
+                Scalar RvMax = problem.maxOilVaporizationFactor(/*timeIdx=*/0, globalDofIdx);
                 Scalar RvSat =
                     FluidSystem::gasPvt().saturatedOilVaporizationFactor(pvtRegionIdx_,
                                                                          T,
@@ -464,7 +447,7 @@ public:
             Scalar po = (*this)[Indices::pressureSwitchIdx];
             Scalar So = 1.0 - Sw - solventSaturation_();
             Scalar SoMax = std::max(So, problem.maxOilSaturation(globalDofIdx));
-            Scalar RsMax = problem.maxGasDissolutionFactor(globalDofIdx);
+            Scalar RsMax = problem.maxGasDissolutionFactor(/*timeIdx=*/0, globalDofIdx);
             Scalar RsSat =
                 FluidSystem::oilPvt().saturatedGasDissolutionFactor(pvtRegionIdx_,
                                                                     T,
@@ -521,7 +504,7 @@ public:
             // low-level PVT objects here for performance reasons.
             Scalar T = asImp_().temperature_();
             Scalar SoMax = problem.maxOilSaturation(globalDofIdx);
-            Scalar RvMax = problem.maxOilVaporizationFactor(globalDofIdx);
+            Scalar RvMax = problem.maxOilVaporizationFactor(/*timeIdx=*/0, globalDofIdx);
             Scalar RvSat =
                 FluidSystem::gasPvt().saturatedOilVaporizationFactor(pvtRegionIdx_,
                                                                      T,

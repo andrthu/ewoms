@@ -91,6 +91,7 @@ class EclOutputBlackOilModule
     enum { waterPhaseIdx = FluidSystem::waterPhaseIdx };
     enum { gasCompIdx = FluidSystem::gasCompIdx };
     enum { oilCompIdx = FluidSystem::oilCompIdx };
+    enum { enableEnergy = GET_PROP_VALUE(TypeTag, EnableEnergy) };
 
     typedef std::vector<Scalar> ScalarBuffer;
 
@@ -216,8 +217,11 @@ public:
             }
         }
 
+        // always allocate memory for temperature
+        temperature_.resize(bufferSize, 0.0);
+
         // Only provide restart on restart steps
-        if (!restartConfig.getWriteRestartFile(reportStepNum) || substep)
+        if (!restartConfig.getWriteRestartFile(reportStepNum, log) || substep)
             return;
 
         // always output saturation of active phases
@@ -229,7 +233,6 @@ public:
         }
         // and oil pressure
         oilPressure_.resize(bufferSize, 0.0);
-        temperature_.resize(bufferSize, 0.0);
 
         if (FluidSystem::enableDissolvedGas())
             rs_.resize(bufferSize, 0.0);
@@ -321,6 +324,16 @@ public:
             dewPointPressure_.resize(bufferSize, 0.0);
         }
 
+        // tracers
+        const int numTracers = simulator_.problem().tracerModel().numTracers();
+        if (numTracers > 0){
+            tracerConcentrations_.resize(numTracers);
+            for (int tracerIdx = 0; tracerIdx < numTracers; ++tracerIdx)
+            {
+                tracerConcentrations_[tracerIdx].resize(bufferSize, 0.0);
+            }
+        }
+
         //Warn for any unhandled keyword
         if (log) {
             for (auto& keyValue: rstKeywords) {
@@ -341,6 +354,7 @@ public:
             saturatedOilFormationVolumeFactor_.resize(bufferSize, 0.0);
         if (false)
             oilSaturationPressure_.resize(bufferSize, 0.0);
+
     }
 
     /*!
@@ -373,7 +387,7 @@ public:
                 Opm::Valgrind::CheckDefined(oilPressure_[globalDofIdx]);
             }
 
-            if (temperature_.size() > 0) {
+            if (enableEnergy) {
                 temperature_[globalDofIdx] = Opm::getValue(fs.temperature(oilPhaseIdx));
                 Opm::Valgrind::CheckDefined(temperature_[globalDofIdx]);
             }
@@ -581,6 +595,17 @@ public:
             if (gasConnectionSaturations_.count(cartesianIdx) > 0) {
                 gasConnectionSaturations_[cartesianIdx] = Opm::getValue(fs.saturation(gasPhaseIdx));
             }
+
+            // tracers
+            const auto& tracerModel = simulator_.problem().tracerModel();
+            if (tracerConcentrations_.size()>0) {
+                for (int tracerIdx = 0; tracerIdx < tracerModel.numTracers(); tracerIdx++){
+                    if (tracerConcentrations_[tracerIdx].size() == 0)
+                        continue;
+
+                    tracerConcentrations_[tracerIdx][globalDofIdx] = tracerModel.tracerConcentration(tracerIdx, globalDofIdx);
+                }
+            }
         }
     }
 
@@ -710,7 +735,7 @@ public:
             sol.insert("PRESSURE", Opm::UnitSystem::measure::pressure, std::move(oilPressure_), Opm::data::TargetType::RESTART_SOLUTION);
         }
 
-        if (temperature_.size() > 0) {
+        if (enableEnergy) {
             sol.insert("TEMP", Opm::UnitSystem::measure::temperature, std::move(temperature_), Opm::data::TargetType::RESTART_SOLUTION);
         }
 
@@ -814,6 +839,15 @@ public:
                            Opm::data::TargetType::SUMMARY);
             }
         }
+
+        // tracers
+        const auto& tracerModel = simulator_.problem().tracerModel();
+        if (tracerConcentrations_.size()>0) {
+            for (int tracerIdx = 0; tracerIdx<tracerModel.numTracers(); tracerIdx++){
+                std::string tmp = tracerModel.tracerName(tracerIdx) + "F";
+                sol.insert (tmp, Opm::UnitSystem::measure::identity, std::move(tracerConcentrations_[tracerIdx]), Opm::data::TargetType::RESTART_SOLUTION);
+            }
+        }
     }
 
     // write Fluid In Place to output log
@@ -912,7 +946,7 @@ public:
 
     }
 
-    void setRestart(const Opm::data::Solution& sol, unsigned elemIdx, unsigned globalDofIndex)
+    void setRestart(const Opm::data::Solution& sol, unsigned elemIdx, unsigned globalDofIndex) 
     {
         Scalar so = 1.0;
         if (saturation_[waterPhaseIdx].size() > 0 && sol.has("SWAT")) {
@@ -929,7 +963,7 @@ public:
 
         if (oilPressure_.size() > 0 && sol.has("PRESSURE"))
             oilPressure_[elemIdx] = sol.data("PRESSURE")[globalDofIndex];
-        if (temperature_.size() > 0 && sol.has("TEMP"))
+        if (enableEnergy && sol.has("TEMP"))
             temperature_[elemIdx] = sol.data("TEMP")[globalDofIndex];
         if (rs_.size() > 0 && sol.has("RS"))
             rs_[elemIdx] = sol.data("RS")[globalDofIndex];
@@ -987,7 +1021,7 @@ public:
             }
         }
 
-        if (temperature_.size() > 0)
+        if (enableEnergy)
             fs.setTemperature(temperature_[elemIdx]);
         if (rs_.size() > 0)
            fs.setRs(rs_[elemIdx]);
@@ -1356,6 +1390,7 @@ private:
     std::map<size_t, Scalar> oilConnectionPressures_;
     std::map<size_t, Scalar> waterConnectionSaturations_;
     std::map<size_t, Scalar> gasConnectionSaturations_;
+    std::vector<ScalarBuffer> tracerConcentrations_;
 };
 } // namespace Ewoms
 

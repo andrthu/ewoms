@@ -102,7 +102,7 @@ NEW_PROP_TAG(EqVector);
 NEW_PROP_TAG(Linearizer);
 
 //! Specifies the type of a global Jacobian matrix
-NEW_PROP_TAG(JacobianMatrix);
+NEW_PROP_TAG(SparseMatrixAdapter);
 
 //! Specifies the type of the linear solver to be used
 NEW_PROP_TAG(LinearSolverBackend);
@@ -183,7 +183,6 @@ class NewtonMethod
     typedef typename GET_PROP_TYPE(TypeTag, Constraints) Constraints;
     typedef typename GET_PROP_TYPE(TypeTag, EqVector) EqVector;
     typedef typename GET_PROP_TYPE(TypeTag, Linearizer) Linearizer;
-    typedef typename GET_PROP_TYPE(TypeTag, JacobianMatrix) JacobianMatrix;
     typedef typename GET_PROP_TYPE(TypeTag, LinearSolverBackend) LinearSolverBackend;
     typedef typename GET_PROP_TYPE(TypeTag, NewtonConvergenceWriter) ConvergenceWriter;
 
@@ -369,19 +368,23 @@ public:
                 // do the actual linearization
                 linearizeTimer_.start();
                 asImp_().linearizeDomain_();
+                asImp_().linearizeAuxiliaryEquations_();
                 linearizeTimer_.stop();
 
-                // notify the implementation of the successful linearization on order to
-                // give it the chance to update the error and thus to terminate the
-                // Newton method without the need of solving the last linearization.
-                updateTimer_.start();
-                auto& M = linearizer.matrix();
-                auto& b = linearizer.residual();
-                linearSolver_.prepareRhs(M, b);
-                asImp_().preSolve_(currentSolution, b);
-                updateTimer_.stop();
+                solveTimer_.start();
+                auto& residual = linearizer.residual();
+                const auto& jacobian = linearizer.jacobian();
+                linearSolver_.prepare(jacobian, residual);
+                linearSolver_.setResidual(residual);
+                linearSolver_.getResidual(residual);
+                solveTimer_.stop();
 
-                asImp_().linearizeAuxiliaryEquations_();
+                // The preSolve_() method usually computes the errors, but it can do
+                // something else in addition. TODO: should its costs be counted to
+                // the linearization or to the update?
+                updateTimer_.start();
+                asImp_().preSolve_(currentSolution, residual);
+                updateTimer_.stop();
 
                 if (!asImp_().proceed_()) {
                     if (asImp_().verbose_() && isatty(fileno(stdout)))
@@ -404,8 +407,10 @@ public:
                 }
 
                 solveTimer_.start();
+                // solve A x = b, where b is the residual, A is its Jacobian and x is the
+                // update of the solution
+                linearSolver_.setMatrix(jacobian);
                 solutionUpdate = 0.0;
-                linearSolver_.prepareMatrix(M);
                 bool converged = linearSolver_.solve(solutionUpdate);
                 solveTimer_.stop();
 
@@ -432,9 +437,9 @@ public:
                 // (i.e. u). The result is stored in u
                 updateTimer_.start();
                 asImp_().postSolve_(currentSolution,
-                                    b,
+                                    residual,
                                     solutionUpdate);
-                asImp_().update_(nextSolution, currentSolution, solutionUpdate, b);
+                asImp_().update_(nextSolution, currentSolution, solutionUpdate, residual);
                 updateTimer_.stop();
 
                 if (asImp_().verbose_() && isatty(fileno(stdout)))
@@ -639,14 +644,19 @@ protected:
     }
 
     /*!
-     * \brief Linearize the global non-linear system of equations assiciated with the
+     * \brief Linearize the global non-linear system of equations associated with the
      *        spatial domain.
      */
     void linearizeDomain_()
-    { model().linearizer().linearizeDomain(); }
+    {
+        model().linearizer().linearizeDomain();
+    }
 
     void linearizeAuxiliaryEquations_()
-    { model().linearizer().linearizeAuxiliaryEquations(); }
+    {
+        model().linearizer().linearizeAuxiliaryEquations();
+        model().linearizer().finalize();
+    }
 
     void preSolve_(const SolutionVector& currentSolution  OPM_UNUSED,
                    const GlobalEqVector& currentResidual)

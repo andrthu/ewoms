@@ -96,6 +96,8 @@ class EclWriter
 
     typedef std::vector<Scalar> ScalarBuffer;
 
+    enum { enableEnergy = GET_PROP_VALUE(TypeTag, EnableEnergy) };
+
 public:
     static void registerParameters()
     {
@@ -324,7 +326,7 @@ public:
             {"PRESSURE" , Opm::UnitSystem::measure::pressure},
             {"SWAT" ,     Opm::UnitSystem::measure::identity, static_cast<bool>(FluidSystem::phaseIsActive(FluidSystem::waterPhaseIdx))},
             {"SGAS" ,     Opm::UnitSystem::measure::identity, static_cast<bool>(FluidSystem::phaseIsActive(FluidSystem::gasPhaseIdx))},
-            {"TEMP" ,     Opm::UnitSystem::measure::temperature}, // always required for now
+            {"TEMP" ,     Opm::UnitSystem::measure::temperature, enableEnergy},
             {"RS" ,       Opm::UnitSystem::measure::gas_oil_ratio, FluidSystem::enableDissolvedGas()},
             {"RV" ,       Opm::UnitSystem::measure::oil_gas_ratio, FluidSystem::enableVaporizedOil()},
             {"SOMAX",     Opm::UnitSystem::measure::identity, simulator_.problem().vapparsActive()},
@@ -382,7 +384,6 @@ private:
         }
 
         const auto& globalGridView = globalGrid_.leafGridView();
-        typedef typename Grid::LeafGridView GridView;
 #if DUNE_VERSION_NEWER(DUNE_GRID, 2,6)
         typedef Dune::MultipleCodimMultipleGeomTypeMapper<GridView> ElementMapper;
         ElementMapper globalElemMapper(globalGridView, Dune::mcmgElementLayout());
@@ -448,7 +449,6 @@ private:
         int ny = eclState().getInputGrid().getNY();
 
         const auto& globalGridView = globalGrid_.leafGridView();
-        typedef typename Grid::LeafGridView GridView;
 #if DUNE_VERSION_NEWER(DUNE_GRID, 2,6)
         typedef Dune::MultipleCodimMultipleGeomTypeMapper<GridView> ElementMapper;
         ElementMapper globalElemMapper(globalGridView, Dune::mcmgElementLayout());

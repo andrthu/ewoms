@@ -60,6 +60,9 @@
 #include "ecldummygradientcalculator.hh"
 #include "eclfluxmodule.hh"
 #include "eclbaseaquifermodel.hh"
+#include "eclnewtonmethod.hh"
+#include "ecltracermodel.hh"
+#include "vtkecltracermodule.hh"
 
 #include <ewoms/common/pffgridvector.hh>
 #include <ewoms/models/blackoil/blackoilmodel.hh>
@@ -91,6 +94,8 @@
 
 #include <opm/output/eclipse/EclipseIO.hpp>
 
+#include <opm/common/OpmLog/OpmLog.hpp>
+
 #include <boost/date_time.hpp>
 
 #include <set>
@@ -108,7 +113,7 @@ BEGIN_PROPERTIES
 #if EBOS_USE_ALUGRID
 NEW_TYPE_TAG(EclBaseProblem, INHERITS_FROM(EclAluGridVanguard, EclOutputBlackOil));
 #else
-NEW_TYPE_TAG(EclBaseProblem, INHERITS_FROM(EclCpGridVanguard, EclOutputBlackOil));
+NEW_TYPE_TAG(EclBaseProblem, INHERITS_FROM(EclCpGridVanguard, EclOutputBlackOil, VtkEclTracer));
 //NEW_TYPE_TAG(EclBaseProblem, INHERITS_FROM(EclPolyhedralGridVanguard, EclOutputBlackOil));
 #endif
 
@@ -231,14 +236,35 @@ SET_SCALAR_PROP(EclBaseProblem, EndTime, 1e100);
 // not millions of trillions of years, that is...)
 SET_SCALAR_PROP(EclBaseProblem, InitialTimeStepSize, 1e100);
 
-// increase the default raw tolerance for the newton solver to 10^-4 because this is what
-// everone else seems to be doing...
-SET_SCALAR_PROP(EclBaseProblem, NewtonRawTolerance, 1e-4);
+// the default for the allowed volumetric error for oil per second
+SET_SCALAR_PROP(EclBaseProblem, NewtonRawTolerance, 1e-2);
 
-// reduce the maximum allowed Newton error to 0.1 kg/(m^3 s). The rationale is that if
-// the error is above that limit, the time step is unlikely to succeed anyway and we can
-// thus abort the futile attempt early.
-SET_SCALAR_PROP(EclBaseProblem, NewtonMaxError, 0.1);
+// the tolerated amount of "incorrect" amount of oil per time step for the complete
+// reservoir. this is scaled by the pore volume of the reservoir, i.e., larger reservoirs
+// will tolerate larger residuals.
+SET_SCALAR_PROP(EclBaseProblem, EclNewtonSumTolerance, 1e-4);
+
+// set the exponent for the volume scaling of the sum tolerance: larger reservoirs can
+// tolerate a higher amount of mass lost per time step than smaller ones! since this is
+// not linear, we use the cube root of the overall pore volume by default, i.e., the
+// value specified by the NewtonSumTolerance parameter is the "incorrect" mass per
+// timestep for an reservoir that exhibits 1 m^3 of pore volume. A reservoir with a total
+// pore volume of 10^3 m^3 will tolerate 10 times as much.
+SET_SCALAR_PROP(EclBaseProblem, EclNewtonSumToleranceExponent, 1.0/3.0);
+
+// set number of Newton iterations where the volumetric residual is considered for
+// convergence
+SET_INT_PROP(EclBaseProblem, EclNewtonStrictIterations, 8);
+
+// set fraction of the pore volume where the volumetric residual may be violated during
+// strict Newton iterations
+SET_SCALAR_PROP(EclBaseProblem, EclNewtonRelaxedVolumeFraction, 0.03);
+
+// the maximum volumetric error of a cell in the relaxed region
+SET_SCALAR_PROP(EclBaseProblem, EclNewtonRelaxedTolerance, 1e9);
+
+// Ignore the maximum error mass for early termination of the newton method.
+SET_SCALAR_PROP(EclBaseProblem, NewtonMaxError, 10e9);
 
 // set the maximum number of Newton iterations to 14 because the likelyhood that a time
 // step succeeds at more than 14 Newton iteration is rather small
@@ -277,6 +303,10 @@ SET_TYPE_PROP(EclBaseProblem, FluxModule, Ewoms::EclTransFluxModule<TypeTag>);
 // Use the dummy gradient calculator in order not to do unnecessary work.
 SET_TYPE_PROP(EclBaseProblem, GradientCalculator, Ewoms::EclDummyGradientCalculator<TypeTag>);
 
+// Use a custom Newton-Raphson method class for ebos in order to attain more
+// sophisticated update and error computation mechanisms
+SET_TYPE_PROP(EclBaseProblem, NewtonMethod, Ewoms::EclNewtonMethod<TypeTag>);
+
 // The frequency of writing restart (*.ers) files. This is the number of time steps
 // between writing restart files
 SET_INT_PROP(EclBaseProblem, RestartWritingInterval, 0xffffff); // disable
@@ -299,6 +329,8 @@ SET_BOOL_PROP(EclBaseProblem, EnableEnergy, false);
 
 // disable thermal flux boundaries by default
 SET_BOOL_PROP(EclBaseProblem, EnableThermalFluxBoundaries, false);
+
+SET_BOOL_PROP(EclBaseProblem, EnableTracerModel, false);
 
 END_PROPERTIES
 
@@ -331,6 +363,8 @@ class EclProblem : public GET_PROP_TYPE(TypeTag, BaseProblem)
     enum { numComponents = FluidSystem::numComponents };
     enum { enableSolvent = GET_PROP_VALUE(TypeTag, EnableSolvent) };
     enum { enablePolymer = GET_PROP_VALUE(TypeTag, EnablePolymer) };
+    enum { enablePolymerMW = GET_PROP_VALUE(TypeTag, EnablePolymerMW) };
+
     enum { enableTemperature = GET_PROP_VALUE(TypeTag, EnableTemperature) };
     enum { enableEnergy = GET_PROP_VALUE(TypeTag, EnableEnergy) };
     enum { enableThermalFluxBoundaries = GET_PROP_VALUE(TypeTag, EnableThermalFluxBoundaries) };
@@ -369,6 +403,8 @@ class EclProblem : public GET_PROP_TYPE(TypeTag, BaseProblem)
 
     typedef EclWriter<TypeTag> EclWriterType;
 
+    typedef EclTracerModel<TypeTag> TracerModel;
+
     typedef typename GridView::template Codim<0>::Iterator ElementIterator;
 
     struct RockParams {
@@ -384,6 +420,7 @@ public:
     {
         ParentType::registerParameters();
         EclWriterType::registerParameters();
+        VtkEclTracerModule<TypeTag>::registerParameters();
 
         EWOMS_REGISTER_PARAM(TypeTag, bool, EnableWriteAllSolutions,
                              "Write all solutions to disk instead of only the ones for the "
@@ -395,6 +432,8 @@ public:
                              "Tell the output writer to use double precision. Useful for 'perfect' restarts");
         EWOMS_REGISTER_PARAM(TypeTag, unsigned, RestartWritingInterval,
                              "The frequencies of which time steps are serialized to disk");
+        EWOMS_REGISTER_PARAM(TypeTag, bool, EnableTracerModel,
+                             "Transport tracers found in the deck.");
     }
 
     /*!
@@ -492,7 +531,9 @@ public:
         , wellModel_(simulator)
         , aquiferModel_(simulator)
         , pffDofData_(simulator.gridView(), this->elementMapper())
+        , tracerModel_(simulator)
     {
+        this->model().addOutputModule(new VtkEclTracerModule<TypeTag>(simulator));
         // Tell the black-oil extensions to initialize their internal data structures
         const auto& vanguard = simulator.vanguard();
         SolventModule::initFromDeck(vanguard.deck(), vanguard.eclState());
@@ -579,6 +620,8 @@ public:
             eclWriter_->writeInit();
             this->simulator().vanguard().releaseGlobalTransmissibilities();
         }
+
+        tracerModel_.init();
     }
 
     void prefetch(const Element& elem) const
@@ -722,7 +765,19 @@ public:
         }
 
         aquiferModel_.beginTimeStep();
+        tracerModel_.beginTimeStep();
+
     }
+
+    /*!
+     * \brief Return if the storage term of the first iteration is identical to the storage
+     *        term for the solution of the previous time step.
+     *
+     * For quite technical reasons, the storage term cannot be recycled if either DRSDT
+     * or DRVDT are active in ebos.
+     */
+    bool recycleFirstIterationStorage() const
+    { return !drsdtActive_() && !drvdtActive_(); }
 
     /*!
      * \brief Called by the simulator before each Newton-Raphson iteration.
@@ -765,6 +820,8 @@ public:
             wellModel_.endTimeStep();
 
         aquiferModel_.endTimeStep();
+        tracerModel_.endTimeStep();
+
 
         // we no longer need the initial soluiton
         if (this->simulator().episodeIndex() == 0 && !initialFluidStates_.empty())  {
@@ -950,6 +1007,9 @@ public:
     EclThresholdPressure<TypeTag>& thresholdPressure()
     { return thresholdPressures_; }
 
+    const EclTracerModel<TypeTag>& tracerModel() const
+    { return tracerModel_; }
+
     /*!
      * \copydoc FvBaseMultiPhaseProblem::porosity
      */
@@ -1093,6 +1153,19 @@ public:
             return 0;
 
         return polymerConcentration_[elemIdx];
+    }
+
+
+    /*!
+    * \brief Returns the polymer molecule weight for a given cell index
+    */
+    // TODO: remove this function if not called
+    Scalar polymerMolecularWeight(const unsigned elemIdx) const
+    {
+        if (polymerMoleWeight_.empty())
+            return 0.0;
+
+        return polymerMoleWeight_[elemIdx];
     }
 
     /*!
@@ -1256,10 +1329,13 @@ public:
             values.assignNaive(initialFluidStates_[globalDofIdx]);
 
         if (enableSolvent)
-             values[Indices::solventSaturationIdx] = solventSaturation_[globalDofIdx];
+            values[Indices::solventSaturationIdx] = solventSaturation_[globalDofIdx];
 
         if (enablePolymer)
-             values[Indices::polymerConcentrationIdx] = polymerConcentration_[globalDofIdx];
+            values[Indices::polymerConcentrationIdx] = polymerConcentration_[globalDofIdx];
+
+        if (enablePolymerMW)
+            values[Indices::polymerMoleWeightIdx]= polymerMoleWeight_[globalDofIdx];
 
         values.checkDefined();
     }
@@ -1324,26 +1400,36 @@ public:
      * \brief Returns the maximum value of the gas dissolution factor at the current time
      *        for a given degree of freedom.
      */
-    Scalar maxGasDissolutionFactor(unsigned globalDofIdx) const
+    Scalar maxGasDissolutionFactor(unsigned timeIdx, unsigned globalDofIdx) const
     {
         int pvtRegionIdx = pvtRegionIndex(globalDofIdx);
         if (!drsdtActive_() || maxDRs_[pvtRegionIdx] < 0.0)
             return std::numeric_limits<Scalar>::max()/2;
 
-        return lastRs_[globalDofIdx] + maxDRs_[pvtRegionIdx];
+        // this is a bit hacky because it assumes that a time discretization with only
+        // two time indices is used.
+        if (timeIdx == 0)
+            return lastRs_[globalDofIdx] + maxDRs_[pvtRegionIdx];
+        else
+            return lastRs_[globalDofIdx];
     }
 
     /*!
      * \brief Returns the maximum value of the oil vaporization factor at the current
      *        time for a given degree of freedom.
      */
-    Scalar maxOilVaporizationFactor(unsigned globalDofIdx) const
+    Scalar maxOilVaporizationFactor(unsigned timeIdx, unsigned globalDofIdx) const
     {
         int pvtRegionIdx = pvtRegionIndex(globalDofIdx);
         if (!drvdtActive_() || maxDRv_[pvtRegionIdx] < 0.0)
             return std::numeric_limits<Scalar>::max()/2;
 
-        return lastRv_[globalDofIdx] + maxDRv_[pvtRegionIdx];
+        // this is a bit hacky because it assumes that a time discretization with only
+        // two time indices is used.
+        if (timeIdx == 0)
+            return lastRv_[globalDofIdx] + maxDRv_[pvtRegionIdx];
+        else
+            return lastRv_[globalDofIdx];
     }
 
     /*!
@@ -1769,16 +1855,43 @@ private:
         if (enablePolymer)
             polymerConcentration_.resize(numElems,0.0);
 
+        if (enablePolymerMW) {
+            const std::string msg {"Support of the RESTART for polymer molecular weight "
+                                   "is not implemented yet. The polymer weight value will be "
+                                   "zero when RESTART begins"};
+            Opm::OpmLog::warning("NO_POLYMW_RESTART", msg);
+            polymerMoleWeight_.resize(numElems, 0.0);
+        }
+
         for (size_t elemIdx = 0; elemIdx < numElems; ++elemIdx) {
             auto& elemFluidState = initialFluidStates_[elemIdx];
             elemFluidState.setPvtRegionIndex(pvtRegionIndex(elemIdx));
             eclWriter_->eclOutputModule().initHysteresisParams(this->simulator(), elemIdx);
             eclWriter_->eclOutputModule().assignToFluidState(elemFluidState, elemIdx);
+            lastRs_[elemIdx] = elemFluidState.Rs();
+            lastRv_[elemIdx] = elemFluidState.Rv();
             if (enableSolvent)
                  solventSaturation_[elemIdx] = eclWriter_->eclOutputModule().getSolventSaturation(elemIdx);
             if (enablePolymer)
                  polymerConcentration_[elemIdx] = eclWriter_->eclOutputModule().getPolymerConcentration(elemIdx);
+            // if we need to restart for polymer molecular weight simulation, we need to add related here
         }
+
+        const int epsiodeIdx = this->simulator().episodeIndex();
+        const auto& oilVaporizationControl = this->simulator().vanguard().schedule().getOilVaporizationProperties(epsiodeIdx);
+        if (drsdtActive_())
+            // DRSDT is enabled
+            for (size_t pvtRegionIdx = 0; pvtRegionIdx < maxDRs_.size(); ++pvtRegionIdx )
+                maxDRs_[pvtRegionIdx] = oilVaporizationControl.getMaxDRSDT(pvtRegionIdx)*this->simulator().timeStepSize();
+
+        if (drvdtActive_())
+            // DRVDT is enabled
+            for (size_t pvtRegionIdx = 0; pvtRegionIdx < maxDRv_.size(); ++pvtRegionIdx )
+                maxDRv_[pvtRegionIdx] = oilVaporizationControl.getMaxDRVDT(pvtRegionIdx)*this->simulator().timeStepSize();
+
+        if (tracerModel().numTracers() > 0)
+            std::cout << "Warning: Restart is not implemented for the tracer model, it will initialize with initial tracer concentration" << std::endl;
+
     }
 
     void readExplicitInitialCondition_()
@@ -1871,14 +1984,17 @@ private:
             //////
             // set saturations
             //////
-            dofFluidState.setSaturation(FluidSystem::waterPhaseIdx,
-                                        waterSaturationData[cartesianDofIdx]);
-            dofFluidState.setSaturation(FluidSystem::gasPhaseIdx,
-                                        gasSaturationData[cartesianDofIdx]);
-            dofFluidState.setSaturation(FluidSystem::oilPhaseIdx,
-                                        1.0
-                                        - waterSaturationData[cartesianDofIdx]
-                                        - gasSaturationData[cartesianDofIdx]);
+            if (FluidSystem::phaseIsActive(FluidSystem::waterPhaseIdx))
+                dofFluidState.setSaturation(FluidSystem::waterPhaseIdx,
+                                            waterSaturationData[cartesianDofIdx]);
+            if (FluidSystem::phaseIsActive(FluidSystem::gasPhaseIdx))
+                dofFluidState.setSaturation(FluidSystem::gasPhaseIdx,
+                                            gasSaturationData[cartesianDofIdx]);
+            if (FluidSystem::phaseIsActive(FluidSystem::oilPhaseIdx))
+                dofFluidState.setSaturation(FluidSystem::oilPhaseIdx,
+                                            1.0
+                                            - waterSaturationData[cartesianDofIdx]
+                                            - gasSaturationData[cartesianDofIdx]);
 
             //////
             // set phase pressures
@@ -1892,19 +2008,22 @@ private:
             MaterialLaw::capillaryPressures(pc, matParams, dofFluidState);
             Opm::Valgrind::CheckDefined(oilPressure);
             Opm::Valgrind::CheckDefined(pc);
-            for (unsigned phaseIdx = 0; phaseIdx < numPhases; ++phaseIdx)
+            for (unsigned phaseIdx = 0; phaseIdx < numPhases; ++phaseIdx) {
+                if (!FluidSystem::phaseIsActive(phaseIdx))
+                    continue;
+
                 dofFluidState.setPressure(phaseIdx, oilPressure + (pc[phaseIdx] - pc[oilPhaseIdx]));
+            }
 
             if (FluidSystem::enableDissolvedGas())
                 dofFluidState.setRs(rsData[cartesianDofIdx]);
-            else
+            else if (Indices::gasEnabled && Indices::oilEnabled)
                 dofFluidState.setRs(0.0);
 
             if (FluidSystem::enableVaporizedOil())
                 dofFluidState.setRv(rvData[cartesianDofIdx]);
-            else
+            else if (Indices::gasEnabled && Indices::oilEnabled)
                 dofFluidState.setRv(0.0);
-
         }
     }
 
@@ -1935,6 +2054,18 @@ private:
                 polymerConcentration_[dofIdx] = polyConcentrationData[cartesianDofIdx];
             }
         }
+
+        if (enablePolymerMW) {
+            const std::vector<double>& polyMoleWeightData = eclState.get3DProperties().getDoubleGridProperty("SPOLYMW").getData();
+            polymerMoleWeight_.resize(numDof,0.0);
+            for (size_t dofIdx = 0; dofIdx < numDof; ++dofIdx) {
+                const size_t cartesianDofIdx = vanguard.cartesianIndex(dofIdx);
+                assert(0 <= cartesianDofIdx);
+                assert(cartesianDofIdx <= polyMoleWeightData.size());
+                polymerMoleWeight_[dofIdx] = polyMoleWeightData[cartesianDofIdx];
+            }
+        }
+
     }
 
 
@@ -2116,6 +2247,8 @@ private:
     std::vector<Scalar> initialTemperature_;
 
     std::vector<Scalar> polymerConcentration_;
+    // polymer molecular weight
+    std::vector<Scalar> polymerMoleWeight_;
     std::vector<Scalar> solventSaturation_;
 
     std::vector<bool> dRsDtOnlyFreeGas_; // apply the DRSDT rate limit only to cells that exhibit free gas
@@ -2128,10 +2261,11 @@ private:
 
     EclWellModel wellModel_;
     EclAquiferModel aquiferModel_;
-
     std::unique_ptr<EclWriterType> eclWriter_;
 
     PffGridVector<GridView, Stencil, PffDofData_, DofMapper> pffDofData_;
+    TracerModel tracerModel_;
+
 
 };
 
