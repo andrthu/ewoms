@@ -157,6 +157,20 @@ public:
     }
 
     /*!
+     * \brief Set the wall time which was spend externally to set up the external data structures
+     *
+     * i.e., the objects specified via the other setExternal*() methods.
+     */
+    static void setExternalSetupTime(Scalar t)
+    { externalSetupTime_ = t; }
+
+    /*!
+     * \brief Returns the wall time required to set up the simulator before it was born.
+     */
+    static Scalar externalSetupTime()
+    { return externalSetupTime_; }
+
+    /*!
      * \brief Set the Opm::EclipseState and the Opm::Deck object which ought to be used
      *        when the simulator vanguard is instantiated.
      *
@@ -497,6 +511,7 @@ private:
 
     std::string caseName_;
 
+    static Scalar externalSetupTime_;
     static Opm::Deck* externalDeck_;
     static Opm::EclipseState* externalEclState_;
     static Opm::Schedule* externalEclSchedule_;
@@ -517,6 +532,9 @@ private:
     bool useObjWgt_;
     int edgeWeightsMethod_;
 };
+
+template <class TypeTag>
+typename EclBaseVanguard<TypeTag>::Scalar EclBaseVanguard<TypeTag>::externalSetupTime_ = 0.0;
 
 template <class TypeTag>
 Opm::Deck* EclBaseVanguard<TypeTag>::externalDeck_ = nullptr;

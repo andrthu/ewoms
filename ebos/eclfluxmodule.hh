@@ -361,11 +361,12 @@ protected:
                                      unsigned timeIdx,
                                      const FluidState& exFluidState)
     {
-        bool enableBoundaryMassFlux = false;
+        const auto& problem = elemCtx.problem();
+
+        bool enableBoundaryMassFlux = problem.hasFreeBoundaryConditions();
         if (!enableBoundaryMassFlux)
             return;
 
-        const auto& problem = elemCtx.problem();
         const auto& stencil = elemCtx.stencil(timeIdx);
         const auto& scvf = stencil.boundaryFace(scvfIdx);
 
@@ -426,10 +427,15 @@ protected:
             // only works for the element centered finite volume method. for ebos this
             // does not matter, though.
             unsigned upstreamIdx = upstreamIndex_(phaseIdx);
-            const auto& up = elemCtx.intensiveQuantities(upstreamIdx, timeIdx);
-            if (upstreamIdx == interiorDofIdx_)
+            if (upstreamIdx == interiorDofIdx_) {
+                const auto& up = elemCtx.intensiveQuantities(upstreamIdx, timeIdx);
                 volumeFlux_[phaseIdx] =
                     pressureDifference_[phaseIdx]*up.mobility(phaseIdx)*(-trans/faceArea);
+
+                if (enableSolvent && phaseIdx == gasPhaseIdx) {
+                        asImp_().setSolventVolumeFlux( pressureDifference_[phaseIdx]*up.solventMobility()*(-trans/faceArea));
+                }
+            }
             else {
                 // compute the phase mobility using the material law parameters of the
                 // interior element. TODO: this could probably be done more efficiently
@@ -443,6 +449,11 @@ protected:
                 const auto& mob = kr[phaseIdx]/exFluidState.viscosity(phaseIdx);
                 volumeFlux_[phaseIdx] =
                     pressureDifference_[phaseIdx]*mob*(-trans/faceArea);
+
+                // Solvent inflow is not yet supported
+                if (enableSolvent && phaseIdx == gasPhaseIdx) {
+                    asImp_().setSolventVolumeFlux( 0.0 );
+                }
             }
         }
     }

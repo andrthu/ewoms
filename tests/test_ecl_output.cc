@@ -120,7 +120,6 @@ void test_summary()
 
     auto simulator = initSimulator<TypeTag>(filename.data());
     typedef typename GET_PROP_TYPE(TypeTag, Vanguard) Vanguard;
-    typedef typename GET_PROP_TYPE(TypeTag, Scalar) Scalar;
     typedef Ewoms::CollectDataToIORank< Vanguard > CollectDataToIORankType;
     CollectDataToIORankType collectToIORank(simulator->vanguard());
     Ewoms::EclOutputBlackOilModule<TypeTag> eclOutputModule(*simulator, collectToIORank);
@@ -132,14 +131,12 @@ void test_summary()
     simulator->model().applyInitialSolution();
     Opm::data::Wells dw;
     bool substep = false;
-    Scalar totalSolverTime = 0;
-    Scalar nextstep = 0;
     simulator->setEpisodeIndex(0);
-    eclWriter->writeOutput(dw, 0 * day, substep, totalSolverTime, nextstep);
+    eclWriter->writeOutput(substep);
     simulator->setEpisodeIndex(1);
-    eclWriter->writeOutput(dw, 1 * day, substep, totalSolverTime, nextstep);
+    eclWriter->writeOutput(substep);
     simulator->setEpisodeIndex(2);
-    eclWriter->writeOutput(dw, 2 * day, substep, totalSolverTime, nextstep);
+    eclWriter->writeOutput(substep);
 
     auto res = readsum( casename );
     const auto* resp = res.get();
