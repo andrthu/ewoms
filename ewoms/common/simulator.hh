@@ -110,7 +110,6 @@ public:
                 forcedTimeSteps_.push_back(dt);
             }
         }
-
         episodeIdx_ = 0;
         episodeStartTime_ = 0;
         episodeLength_ = std::numeric_limits<Scalar>::max();
