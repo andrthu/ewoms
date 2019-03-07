@@ -159,6 +159,7 @@ public:
             
             bool useObjWgt = this->useObjWgt();
             int edgeWeightsMethod = this->edgeWeightsMethod();
+            int reorderLocalMethod = this->reorderLocalMethod();
             if (edgeWeightsMethod == 0 && mpiRank==0)
                 std::cout << "We are using uniform edge-weights" << std::endl; 
             // convert to transmissibility for faces
@@ -196,7 +197,7 @@ public:
             //distribute the grid and switch to the distributed view.
             {
                 const auto wells = this->schedule().getWells();
-                defunctWellNames_ = std::get<1>(grid_->loadBalance(&wells, faceTrans.data(), edgeWeightsMethod, useObjWgt, 1));
+                defunctWellNames_ = std::get<1>(grid_->loadBalance(&wells, faceTrans.data(), edgeWeightsMethod, useObjWgt, reorderLocalMethod, 1));
             }
             grid_->switchToDistributedView();
 

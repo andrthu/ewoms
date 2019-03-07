@@ -846,7 +846,7 @@ double satFromPc(const MaterialLawManager& materialLawManager,
         if (std::abs(s1 - s0) < tol)
             return (s1 + s0)/2;
     }
-
+    std::cout << "satFramPC failed at: " << cell << std::endl;
     throw std::runtime_error("Could not find solution for PcEq = 0.0 after "+std::to_string(maxIter)
                              +" iterations.");
 }

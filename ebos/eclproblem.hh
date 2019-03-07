@@ -607,7 +607,6 @@ public:
             simulator.setEpisodeLength(0.0);
             simulator.setTimeStepSize(0.0);
         }
-
         updatePffDofData_();
 
         if (GET_PROP_VALUE(TypeTag, EnablePolymer)) {
@@ -616,7 +615,6 @@ public:
             int numElements = gridView.size(/*codim=*/0);
             maxPolymerAdsorption_.resize(numElements, 0.0);
         }
-
         if (eclWriter_) {
             eclWriter_->writeInit();
             this->simulator().vanguard().releaseGlobalTransmissibilities();
@@ -2279,10 +2277,15 @@ private:
             -> void
         {
             const auto& elementMapper = this->model().elementMapper();
+            //int rank = this->simulator().vanguard().grid().comm().rank();
 
             unsigned globalElemIdx = elementMapper.index(stencil.entity(localDofIdx));
+            
             if (localDofIdx != 0) {
                 unsigned globalCenterElemIdx = elementMapper.index(stencil.entity(/*dofIdx=*/0));
+
+                //std::cout << "trans stuff " << localDofIdx << " " << globalElemIdx << " " << globalCenterElemIdx <<" "<< rank <<std::endl;
+
                 dofData.transmissibility = transmissibilities_.transmissibility(globalCenterElemIdx, globalElemIdx);
 
                 if (enableEnergy)

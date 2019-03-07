@@ -124,10 +124,38 @@ public:
             std::cout << "Distributing the vanguard data\n" << std::flush;
         vanguard_->loadBalance();
 
+        
         if (verbose_)
             std::cout << "Allocating the model\n" << std::flush;
         model_.reset(new Model(*this));
+        /*
+        auto gv = vanguard_->gridView();
+        if (gv.comm().rank()==0)
+        {
+            auto grid = vanguard_->grid();
+            auto lid  = grid.localIdSet();
+            auto gid  = grid.globalIdSet();
+            auto cartMapper = vanguard_->cartesianIndexMapper();
 
+            auto elemIt = gv.template begin<0>();
+            const auto& elemEndIt = gv.template end<0>();
+            auto mapper = model_->elementMapper();
+            int idx_test = 0;
+            for (; elemIt != elemEndIt; ++elemIt) {
+                const auto& elem = *elemIt;
+                std::cout << gid.id(elem)<< " " << lid.id(elem) << " " << cartMapper.cartesianIndex(idx_test) << " " << idx_test << " " <<mapper.index(elem) << " "<< elem.partitionType() <<" off-d: ";
+                idx_test++;
+                
+                auto isIt = gridView.ibegin(elem);
+                const auto& isEndIt = gridView.iend(elem);
+                for (; isIt != isEndIt; ++ isIt) {
+                    std::cout << lid.id
+                }
+                std::cout << std::endl;
+            }
+
+        }
+        */
         if (verbose_)
             std::cout << "Allocating the problem\n" << std::flush;
         problem_.reset(new Problem(*this));
