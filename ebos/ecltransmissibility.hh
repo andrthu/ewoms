@@ -184,19 +184,11 @@ public:
             thermalHalfTransBoundary_.clear();
         }
 
-        auto comm = vanguard_.grid().comm();
-        auto lid = vanguard_.grid().localIdSet();
-        auto gid = vanguard_.grid().globalIdSet();
-
         // compute the transmissibilities for all intersections
         elemIt = gridView.template begin</*codim=*/ 0>();
         for (; elemIt != elemEndIt; ++elemIt) {
             const auto& elem = *elemIt;
             unsigned elemIdx = elemMapper.index(elem);
-            /*if (comm.rank()==0) {
-                std::cout << std::endl;
-                std::cout << "In trans update: "<<elemIdx << " "<<lid.id(elem) <<" "<< gid.id(elem)<< " off-d: ";
-            }*/
             auto isIt = gridView.ibegin(elem);
             const auto& isEndIt = gridView.iend(elem);
             unsigned boundaryIsIdx = 0;
@@ -255,13 +247,6 @@ public:
 
                 const auto& outsideElem = intersection.outside();
                 unsigned outsideElemIdx = elemMapper.index(outsideElem);
-                unsigned lid_out = lid.id(outsideElem);
-                unsigned gid_out = gid.id(outsideElem);
-                /*
-                if (comm.rank()==0) {
-                    std::cout << outsideElemIdx << " " << lid_out << " " << gid_out << " next: ";
-                }
-                */
                 // update the "thermal half transmissibility" for the intersection
                 if (enableEnergy) {
                     const auto& n = intersection.centerUnitOuterNormal();
