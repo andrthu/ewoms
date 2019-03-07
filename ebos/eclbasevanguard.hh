@@ -120,7 +120,7 @@ public:
         EWOMS_REGISTER_PARAM(TypeTag, bool, UseObjWgt,
                              "Use vertex weights in the load balancer.");
         EWOMS_REGISTER_PARAM(TypeTag, int, EdgeWeightsMethod,
-                             "Choose edge-weighing strategy: 0=uniform, 1=trans, 2=log(trans).");
+                             "Choose edge-weighing strategy: 0=uniform, 1=trans, 2=log(trans), 3=log_, 4=category.");
         EWOMS_REGISTER_PARAM(TypeTag, bool, EclStrictParsing,
                              "Use strict mode for parsing - all errors are collected before the applicaton exists.");
     }
