@@ -76,7 +76,7 @@ SET_STRING_PROP(EclBaseVanguard, EclDeckFileName, "");
 SET_INT_PROP(EclBaseVanguard, EclOutputInterval, -1); // use the deck-provided value
 SET_BOOL_PROP(EclBaseVanguard, EnableOpmRstFile, true);
 SET_BOOL_PROP(EclBaseVanguard, UseObjWgt, false);
-SET_INT_PROP(EclBaseVanguard, EdgeWeightsMethod, 1);
+SET_INT_PROP(EclBaseVanguard, EdgeWeightsMethod, 4);
 SET_BOOL_PROP(EclBaseVanguard, EclStrictParsing, false);
 
 END_PROPERTIES
