@@ -124,9 +124,6 @@ static inline int setupParameters_(int argc, const char **argv, bool registerPar
 
     // first, get the MPI rank of the current process
     int myRank = 0;
-#if HAVE_MPI
-    MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
-#endif
 
     ////////////////////////////////////////////////////////////
     // Register all parameters
@@ -252,6 +249,7 @@ static inline int start(int argc, char **argv)
 {
     typedef typename GET_PROP_TYPE(TypeTag, Scalar) Scalar;
     typedef typename GET_PROP_TYPE(TypeTag, Simulator) Simulator;
+    typedef typename GET_PROP_TYPE(TypeTag, Problem) Problem;
     typedef typename GET_PROP_TYPE(TypeTag, ThreadManager) ThreadManager;
 
     // set the signal handlers to reset the TTY to a well defined state on unexpected
@@ -268,14 +266,7 @@ static inline int start(int argc, char **argv)
 
     Opm::resetLocale();
 
-    // initialize MPI, finalize is done automatically on exit
-#if HAVE_DUNE_FEM
-    Dune::Fem::MPIManager::initialize(argc, argv);
-    const int myRank = Dune::Fem::MPIManager::rank();
-#else
-    const int myRank = Dune::MPIHelper::instance(argc, argv).rank();
-#endif
-
+    int myRank = 0;
     try
     {
         int paramStatus = setupParameters_<TypeTag>(argc, const_cast<const char**>(argv));
@@ -285,6 +276,14 @@ static inline int start(int argc, char **argv)
             return 0;
 
         ThreadManager::init();
+
+        // initialize MPI, finalize is done automatically on exit
+#if HAVE_DUNE_FEM
+        Dune::Fem::MPIManager::initialize(argc, argv);
+        myRank = Dune::Fem::MPIManager::rank();
+#else
+        myRank = Dune::MPIHelper::instance(argc, argv).rank();
+#endif
 
         // read the initial time step and the end time
         Scalar endTime = EWOMS_GET_PARAM(TypeTag, Scalar, EndTime);
@@ -304,17 +303,24 @@ static inline int start(int argc, char **argv)
             return 1;
         }
 
-
         if (myRank == 0) {
 #ifdef EWOMS_VERSION
             std::string versionString = EWOMS_VERSION;
 #else
             std::string versionString = "";
 #endif
-            std::cout << "eWoms " << versionString
-                      << " will now start the trip. "
-                      << "Please sit back, relax and enjoy the ride.\n"
-                      << std::flush;
+            const std::string briefDescription = Problem::briefDescription();
+            if (!briefDescription.empty()) {
+                std::string tmp = Parameters::breakLines_(briefDescription,
+                                                          /*indentWidth=*/0,
+                                                          Parameters::getTtyWidth_());
+                std::cout << tmp << std::endl << std::endl;
+            }
+            else
+                std::cout << "eWoms " << versionString
+                          << " will now start the trip. "
+                          << "Please sit back, relax and enjoy the ride.\n"
+                          << std::flush;
         }
 
         // print the parameters if requested
