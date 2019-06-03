@@ -228,7 +228,7 @@ public:
         assert(int(gridView.size(/*codim=*/0)) == int(elementMapper_.size()));
     }
 
-    void updateTopology(const Element& element, bool includeGhost=false)
+    void updateTopology(const Element& element, bool ghostAssemble=false)
     {
         auto isIt = gridView_.ibegin(element);
         const auto& endIsIt = gridView_.iend(element);
@@ -241,18 +241,23 @@ public:
 
         interiorFaces_.clear();
         boundaryFaces_.clear();
-
+        noGhostIdx_.clear();
+        
+        noGhostIdx_.push_back(0);
+        size_t subControlIdx = 1;
         for (; isIt != endIsIt; ++isIt) {
             const auto& intersection = *isIt;
             // if the current intersection has a neighbor, add a
             // degree of freedom and an internal face, else add a
             // boundary face
-            if (intersection.neighbor()) {
-                if ( intersection.outside().partitionType() == Dune::InteriorEntity || includeGhost ) {
-                    elements_.emplace_back( intersection.outside() );
-                    subControlVolumes_.emplace_back(/*SubControlVolume(*/elements_.back()/*)*/);
-                    interiorFaces_.emplace_back(/*SubControlVolumeFace(*/intersection, subControlVolumes_.size() - 1/*)*/);
+            if (intersection.neighbor()) {                
+                elements_.emplace_back( intersection.outside() );
+                subControlVolumes_.emplace_back(/*SubControlVolume(*/elements_.back()/*)*/);
+                interiorFaces_.emplace_back(/*SubControlVolumeFace(*/intersection, subControlVolumes_.size() - 1/*)*/);
+                if ( intersection.outside().partitionType() == Dune::InteriorEntity ) {
+                    noGhostIdx_.push_back(subControlIdx);
                 }
+                subControlIdx++;
             }
             else {
                 boundaryFaces_.emplace_back(/*SubControlVolumeFace(*/intersection, - 10000/*)*/);
@@ -267,11 +272,13 @@ public:
         subControlVolumes_.emplace_back(/*SubControlVolume(*/element/*)*/);
         elements_.clear();
         elements_.emplace_back(element);
+        noGhostIdx_.clear();
+        noGhostIdx_.push_back(0);
     }
 
-    void update(const Element& element, bool includeGhost=false)
+    void update(const Element& element, bool ghostAssemble=false)
     {
-        updateTopology(element, includeGhost);
+        updateTopology(element, ghostAssemble);
     }
 
     void updateCenterGradients()
@@ -384,6 +391,12 @@ public:
     const BoundaryFace& boundaryFace(unsigned bfIdx) const
     { return boundaryFaces_[bfIdx]; }
 
+    std::vector<size_t> noGhostIdx() const
+    { return noGhostIdx_; }
+
+    size_t noGhostSize() const
+    { return noGhostIdx_.size(); }
+    
 protected:
     const GridView&       gridView_;
     const ElementMapper&  elementMapper_;
@@ -391,6 +404,7 @@ protected:
     std::vector<Element> elements_;
     std::vector<SubControlVolume>      subControlVolumes_;
     std::vector<SubControlVolumeFace>  interiorFaces_;
+    std::vector<size_t>  noGhostIdx_;
     std::vector<BoundaryFace>  boundaryFaces_;
 };
 
