@@ -345,14 +345,21 @@ private:
         const ElementIterator elemEndIt = gridView_().template end<0>();
         for (; elemIt != elemEndIt; ++elemIt) {
             const Element& elem = *elemIt;
-            stencil.update(elem);
+            stencil.update(elem, true);
+            if ( elem.partitionType() == Dune::InteriorEntity ) {
+                for (unsigned primaryDofIdx = 0; primaryDofIdx < stencil.numPrimaryDof(); ++primaryDofIdx) {
+                    unsigned myIdx = stencil.globalSpaceIndex(primaryDofIdx);
 
-            for (unsigned primaryDofIdx = 0; primaryDofIdx < stencil.numPrimaryDof(); ++primaryDofIdx) {
-                unsigned myIdx = stencil.globalSpaceIndex(primaryDofIdx);
-
-                for (unsigned dofIdx = 0; dofIdx < stencil.numDof(); ++dofIdx) {
-                    unsigned neighborIdx = stencil.globalSpaceIndex(dofIdx);
-                    sparsityPattern[myIdx].insert(neighborIdx);
+                    for (unsigned dofIdx = 0; dofIdx < stencil.numDof(); ++dofIdx) {
+                        unsigned neighborIdx = stencil.globalSpaceIndex(dofIdx);
+                        sparsityPattern[myIdx].insert(neighborIdx);
+                    }
+                }
+            }
+            else {
+                for (unsigned primaryDofIdx = 0; primaryDofIdx < stencil.numPrimaryDof(); ++primaryDofIdx) {
+                    unsigned myIdx = stencil.globalSpaceIndex(primaryDofIdx);
+                    sparsityPattern[myIdx].insert(myIdx);
                 }
             }
         }

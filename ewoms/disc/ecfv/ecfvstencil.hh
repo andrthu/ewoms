@@ -228,7 +228,7 @@ public:
         assert(int(gridView.size(/*codim=*/0)) == int(elementMapper_.size()));
     }
 
-    void updateTopology(const Element& element)
+    void updateTopology(const Element& element, bool includeGhost=false)
     {
         auto isIt = gridView_.ibegin(element);
         const auto& endIsIt = gridView_.iend(element);
@@ -248,9 +248,11 @@ public:
             // degree of freedom and an internal face, else add a
             // boundary face
             if (intersection.neighbor()) {
-                elements_.emplace_back( intersection.outside() );
-                subControlVolumes_.emplace_back(/*SubControlVolume(*/elements_.back()/*)*/);
-                interiorFaces_.emplace_back(/*SubControlVolumeFace(*/intersection, subControlVolumes_.size() - 1/*)*/);
+                if ( intersection.outside().partitionType() == Dune::InteriorEntity || includeGhost ) {
+                    elements_.emplace_back( intersection.outside() );
+                    subControlVolumes_.emplace_back(/*SubControlVolume(*/elements_.back()/*)*/);
+                    interiorFaces_.emplace_back(/*SubControlVolumeFace(*/intersection, subControlVolumes_.size() - 1/*)*/);
+                }
             }
             else {
                 boundaryFaces_.emplace_back(/*SubControlVolumeFace(*/intersection, - 10000/*)*/);
@@ -267,9 +269,9 @@ public:
         elements_.emplace_back(element);
     }
 
-    void update(const Element& element)
+    void update(const Element& element, bool includeGhost=false)
     {
-        updateTopology(element);
+        updateTopology(element, includeGhost);
     }
 
     void updateCenterGradients()
