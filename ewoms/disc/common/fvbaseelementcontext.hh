@@ -324,6 +324,12 @@ public:
     size_t numBoundaryFaces(unsigned timeIdx) const
     { return stencil(timeIdx).numBoundaryFaces(); }
 
+    std::vector<size_t> noGhostIdx(unsigned timeIdx) const
+    { return stencil(timeIdx).noGhostIdx(); }
+    
+    size_t noGhostSize(unsigned timeIdx) const
+    { return stencil(timeIdx).noGhostSize(); }
+    
     /*!
      * \brief Return the current finite element geometry.
      *

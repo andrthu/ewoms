@@ -1090,6 +1090,11 @@ public:
     const BoundaryFace& boundaryFace(unsigned bfIdx) const
     { return boundaryFace_[bfIdx]; }
 
+    std::vector<size_t> noGhostIdx() const
+    { return noGhostIdx_; }
+
+    size_t noGhostSize() const
+    { return noGhostIdx_.size(); }
     /*!
      * \brief Return the global space index given the index of a degree of
      *        freedom.
@@ -1382,6 +1387,8 @@ private:
     //! number of faces (0 in < 3D)
     unsigned numFaces;
     Dune::GeometryType geometryType_;
+
+    std::vector<size_t> noGhostIdx_;
 };
 
 #if HAVE_DUNE_LOCALFUNCTIONS

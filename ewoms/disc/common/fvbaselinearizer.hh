@@ -345,14 +345,22 @@ private:
         const ElementIterator elemEndIt = gridView_().template end<0>();
         for (; elemIt != elemEndIt; ++elemIt) {
             const Element& elem = *elemIt;
-            stencil.update(elem);
-
-            for (unsigned primaryDofIdx = 0; primaryDofIdx < stencil.numPrimaryDof(); ++primaryDofIdx) {
-                unsigned myIdx = stencil.globalSpaceIndex(primaryDofIdx);
-
-                for (unsigned dofIdx = 0; dofIdx < stencil.numDof(); ++dofIdx) {
-                    unsigned neighborIdx = stencil.globalSpaceIndex(dofIdx);
-                    sparsityPattern[myIdx].insert(neighborIdx);
+            stencil.update(elem, true);
+            
+            if ( elem.partitionType() == Dune::InteriorEntity ) {
+                for (unsigned primaryDofIdx = 0; primaryDofIdx < stencil.numPrimaryDof(); ++primaryDofIdx) {
+                    unsigned myIdx = stencil.globalSpaceIndex(primaryDofIdx);
+               
+                    for (unsigned dofIdx = 0; dofIdx < stencil.numDof(); ++dofIdx) {
+                        unsigned neighborIdx = stencil.globalSpaceIndex(dofIdx);
+                        sparsityPattern[myIdx].insert(neighborIdx);
+                    }
+                }
+            }
+            else {
+                for (unsigned primaryDofIdx = 0; primaryDofIdx < stencil.numPrimaryDof(); ++primaryDofIdx) {
+                    unsigned myIdx = stencil.globalSpaceIndex(primaryDofIdx);
+                    sparsityPattern[myIdx].insert(myIdx);
                 }
             }
         }
@@ -516,7 +524,8 @@ private:
         // update the right hand side and the Jacobian matrix
         if (GET_PROP_VALUE(TypeTag, UseLinearizationLock))
             globalMatrixMutex_.lock();
-
+        
+        std::vector<size_t> noGhostList = elementCtx->noGhostIdx(0);
         size_t numPrimaryDof = elementCtx->numPrimaryDof(/*timeIdx=*/0);
         for (unsigned primaryDofIdx = 0; primaryDofIdx < numPrimaryDof; ++ primaryDofIdx) {
             unsigned globI = elementCtx->globalSpaceIndex(/*spaceIdx=*/primaryDofIdx, /*timeIdx=*/0);
@@ -524,11 +533,14 @@ private:
             // update the right hand side
             residual_[globI] += localLinearizer.residual(primaryDofIdx);
 
+            size_t dof2 = 0;
             // update the global Jacobian matrix
-            for (unsigned dofIdx = 0; dofIdx < elementCtx->numDof(/*timeIdx=*/0); ++ dofIdx) {
+            //for (unsigned dofIdx = 0; dofIdx < elementCtx->numDof(/*timeIdx=*/0); ++ dofIdx) {
+            for (auto dof = noGhostList.begin(); dof != noGhostList.end(); ++dof, ++dof2) {
+                unsigned dofIdx = *dof;
                 unsigned globJ = elementCtx->globalSpaceIndex(/*spaceIdx=*/dofIdx, /*timeIdx=*/0);
 
-                jacobian_->addToBlock(globJ, globI, localLinearizer.jacobian(dofIdx, primaryDofIdx));
+                jacobian_->addToBlock(globJ, globI, localLinearizer.jacobian(dof2, primaryDofIdx));
             }
         }
 

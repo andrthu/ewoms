@@ -259,9 +259,10 @@ protected:
     {
         size_t numDof = elemCtx.numDof(/*timeIdx=*/0);
         size_t numPrimaryDof = elemCtx.numPrimaryDof(/*timeIdx=*/0);
+        size_t numNoGhostDof = elemCtx.noGhostSize(/*timeIdx=*/0);
 
         residual_.resize(numDof);
-        jacobian_.setSize(numDof, numPrimaryDof);
+        jacobian_.setSize(numNoGhostDof, numPrimaryDof);
     }
 
     /*!
@@ -285,15 +286,19 @@ protected:
         for (unsigned eqIdx = 0; eqIdx < numEq; eqIdx++)
             residual_[focusDofIdx][eqIdx] = resid[focusDofIdx][eqIdx].value();
 
-        size_t numDof = elemCtx.numDof(/*timeIdx=*/0);
-        for (unsigned dofIdx = 0; dofIdx < numDof; dofIdx++) {
+        std::vector<size_t> noGhostList = elemCtx.noGhostIdx(0);
+        size_t dof2 = 0;
+        //size_t numDof = elemCtx.numDof(/*timeIdx=*/0);
+        //for (unsigned dofIdx = 0; dofIdx < numDof; dofIdx++) {
+        for (auto dof = noGhostList.begin(); dof != noGhostList.end(); ++dof, ++dof2) {
+            unsigned dofIdx = *dof;
             for (unsigned eqIdx = 0; eqIdx < numEq; eqIdx++) {
                 for (unsigned pvIdx = 0; pvIdx < numEq; pvIdx++) {
                     // A[dofIdx][focusDofIdx][eqIdx][pvIdx] is the partial derivative of
                     // the residual function 'eqIdx' for the degree of freedom 'dofIdx'
                     // with regard to the focus variable 'pvIdx' of the degree of freedom
                     // 'focusDofIdx'
-                    jacobian_[dofIdx][focusDofIdx][eqIdx][pvIdx] = resid[dofIdx][eqIdx].derivative(pvIdx);
+                    jacobian_[dof2][focusDofIdx][eqIdx][pvIdx] = resid[dofIdx][eqIdx].derivative(pvIdx);
                     Opm::Valgrind::CheckDefined(jacobian_[dofIdx][focusDofIdx][eqIdx][pvIdx]);
                 }
             }
