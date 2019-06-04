@@ -242,8 +242,10 @@ public:
         interiorFaces_.clear();
         boundaryFaces_.clear();
         noGhostIdx_.clear();
-        
-        noGhostIdx_.push_back(0);
+
+        if ( element.partitionType() == Dune::InteriorEntity ) {
+            noGhostIdx_.push_back(0);
+        }
         size_t subControlIdx = 1;
         for (; isIt != endIsIt; ++isIt) {
             const auto& intersection = *isIt;

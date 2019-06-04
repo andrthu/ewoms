@@ -531,7 +531,13 @@ private:
 
             // update the right hand side
             residual_[globI] += localLinearizer.residual(primaryDofIdx);
+            if ( elem.partitionType() != Dune::InteriorEntity ) {
+                 MatrixBlock diag(0.0);
+                 for (int eq = 0; eq < numEq; ++eq)
+                     diag[eq][eq] = 1.0;
 
+                 jacobian_->addToBlock(globI, globI, diag);
+            }
             size_t dof2 = 0;
             // update the global Jacobian matrix
             //for (unsigned dofIdx = 0; dofIdx < elementCtx->numDof(/*timeIdx=*/0); ++ dofIdx) {
