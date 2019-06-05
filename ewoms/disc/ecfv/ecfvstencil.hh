@@ -228,7 +228,7 @@ public:
         assert(int(gridView.size(/*codim=*/0)) == int(elementMapper_.size()));
     }
 
-    void updateTopology(const Element& element, bool ghostAssemble=false)
+    void updateTopology(const Element& element)
     {
         auto isIt = gridView_.ibegin(element);
         const auto& endIsIt = gridView_.iend(element);
@@ -278,9 +278,9 @@ public:
         noGhostIdx_.push_back(0);
     }
 
-    void update(const Element& element, bool ghostAssemble=false)
+    void update(const Element& element)
     {
-        updateTopology(element, ghostAssemble);
+        updateTopology(element);
     }
 
     void updateCenterGradients()

@@ -345,7 +345,7 @@ private:
         const ElementIterator elemEndIt = gridView_().template end<0>();
         for (; elemIt != elemEndIt; ++elemIt) {
             const Element& elem = *elemIt;
-            stencil.update(elem, true);
+            stencil.update(elem);
             
             if ( elem.partitionType() == Dune::InteriorEntity ) {
                 for (unsigned primaryDofIdx = 0; primaryDofIdx < stencil.numPrimaryDof(); ++primaryDofIdx) {
@@ -360,6 +360,7 @@ private:
                 for (unsigned primaryDofIdx = 0; primaryDofIdx < stencil.numPrimaryDof(); ++primaryDofIdx) {
                     unsigned myIdx = stencil.globalSpaceIndex(primaryDofIdx);
                     sparsityPattern[myIdx].insert(myIdx);
+                    ghostIdxList_.push_back(myIdx);    
                 }
             }
         }
@@ -375,6 +376,10 @@ private:
 
         // create matrix structure based on sparsity pattern
         jacobian_->reserve(sparsityPattern);
+
+        diag_ = MatrixBlock(0.0);
+        for (int eq = 0; eq < numEq; ++eq)
+            diag_[eq][eq] = 1.0;
     }
 
     // reset the global linear system of equations.
@@ -383,6 +388,10 @@ private:
         residual_ = 0.0;
         // zero all matrix entries
         jacobian_->clear();
+
+        for ( auto row = ghostIdxList_.begin(); row != ghostIdxList_.end(); ++row ) {
+            jacobian_->addToBlock(*row, *row, diag_);
+        }
     }
 
     // query the problem for all constraint degrees of freedom. note that this method is
@@ -525,27 +534,21 @@ private:
             globalMatrixMutex_.lock();
         
         std::vector<size_t> noGhostList = elementCtx->noGhostIdx(0);
+        size_t interDof = elementCtx->noGhostSize();
         size_t numPrimaryDof = elementCtx->numPrimaryDof(/*timeIdx=*/0);
         for (unsigned primaryDofIdx = 0; primaryDofIdx < numPrimaryDof; ++ primaryDofIdx) {
             unsigned globI = elementCtx->globalSpaceIndex(/*spaceIdx=*/primaryDofIdx, /*timeIdx=*/0);
 
             // update the right hand side
             residual_[globI] += localLinearizer.residual(primaryDofIdx);
-            if ( elem.partitionType() != Dune::InteriorEntity ) {
-                 MatrixBlock diag(0.0);
-                 for (int eq = 0; eq < numEq; ++eq)
-                     diag[eq][eq] = 1.0;
-
-                 jacobian_->addToBlock(globI, globI, diag);
-            }
-            size_t dof2 = 0;
+            
             // update the global Jacobian matrix
             //for (unsigned dofIdx = 0; dofIdx < elementCtx->numDof(/*timeIdx=*/0); ++ dofIdx) {
-            for (auto dof = noGhostList.begin(); dof != noGhostList.end(); ++dof, ++dof2) {
-                unsigned dofIdx = *dof;
-                unsigned globJ = elementCtx->globalSpaceIndex(/*spaceIdx=*/dofIdx, /*timeIdx=*/0);
+            //for (auto dof = noGhostList.begin(); dof != noGhostList.end(); ++dof, ++dof2) {
+            for ( unsigned dof = 0; dof < interDof; ++dof ) {
+                unsigned globJ = elementCtx->globalSpaceIndex(/*spaceIdx=*/noGhostList[dof], /*timeIdx=*/0);
 
-                jacobian_->addToBlock(globJ, globI, localLinearizer.jacobian(dof2, primaryDofIdx));
+                jacobian_->addToBlock(globJ, globI, localLinearizer.jacobian(dof, primaryDofIdx));
             }
         }
 
@@ -609,8 +612,10 @@ private:
     // the right-hand side
     GlobalEqVector residual_;
 
-
     std::mutex globalMatrixMutex_;
+
+    std::vector<unsigned> ghostIdxList_;
+    MatrixBlock diag_;
 };
 
 } // namespace Ewoms
