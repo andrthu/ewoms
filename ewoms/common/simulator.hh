@@ -540,6 +540,17 @@ public:
     { return episodeLength_; }
 
     /*!
+     * \brief Returns true if the current episode has just been started at the
+     *        current time.
+     */
+    bool episodeStarts() const
+    {
+        static const Scalar eps = std::numeric_limits<Scalar>::epsilon()*1e3;
+
+        return this->time() <= (episodeStartTime_ - startTime())*(1 + eps);
+    }
+
+    /*!
      * \brief Returns true if the current episode is finished at the
      *        current time.
      */
@@ -547,7 +558,7 @@ public:
     {
         static const Scalar eps = std::numeric_limits<Scalar>::epsilon()*1e3;
 
-        return startTime() + this->time() >= (episodeStartTime_ + episodeLength())*(1 - eps);
+        return this->time() >= (episodeStartTime_ - startTime() + episodeLength())*(1 - eps);
     }
 
     /*!
@@ -558,8 +569,8 @@ public:
     {
         static const Scalar eps = std::numeric_limits<Scalar>::epsilon()*1e3;
 
-        return startTime() + this->time() + timeStepSize()
-            >=  (episodeStartTime_ + episodeLength())*(1 - eps);
+        return this->time() + timeStepSize()
+            >=  (episodeStartTime_ - startTime() + episodeLength())*(1 - eps);
     }
 
     /*!
@@ -636,7 +647,7 @@ public:
 
             // write initial condition
             if (problem_->shouldWriteOutput())
-                EWOMS_CATCH_PARALLEL_EXCEPTIONS_FATAL(problem_->writeOutput(/*isSubstep=*/false));
+                EWOMS_CATCH_PARALLEL_EXCEPTIONS_FATAL(problem_->writeOutput());
 
             timeStepSize_ = oldTimeStepSize;
             timeStepIdx_ = oldTimeStepIdx;
@@ -715,7 +726,7 @@ public:
             // write the result to disk
             writeTimer_.start();
             if (problem_->shouldWriteOutput())
-                EWOMS_CATCH_PARALLEL_EXCEPTIONS_FATAL(problem_->writeOutput(/*isSubstep=*/!episodeWillBeOver()));
+                EWOMS_CATCH_PARALLEL_EXCEPTIONS_FATAL(problem_->writeOutput());
             writeTimer_.stop();
 
             // do the next time integration

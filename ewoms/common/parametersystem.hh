@@ -127,6 +127,21 @@
 /*!
  * \ingroup Parameter
  *
+ * \brief Retrieves the lists of parameters specified at runtime and their values.
+ *
+ * The two arguments besides the TypeTag are assumed to be STL containers which store
+ * std::pair<std::string, std::string>.
+ */
+#define EWOMS_GET_PARAM_LISTS(TypeTag, UsedParamList, UnusedParamList)    \
+    (::Ewoms::Parameters::getLists<TypeTag>(UsedParamList, UnusedParamList))
+
+//!\cond SKIP_THIS
+#define EWOMS_RESET_PARAMS_(TypeTag)            \
+    (::Ewoms::Parameters::reset<TypeTag>())
+
+/*!
+ * \ingroup Parameter
+ *
  * \brief Returns true if a parameter has been specified at runtime, false
  *        otherwise.
  *
@@ -182,7 +197,7 @@ public:
         : paramName_(paramName)
     {}
 
-    void retrieve()
+    virtual void retrieve() override
     {
         // retrieve the parameter once to make sure that its value does
         // not contain a syntax error.
@@ -214,7 +229,7 @@ SET_PROP(ParameterSystem, ParameterMetaData)
     typedef Dune::ParameterTree type;
 
     static Dune::ParameterTree& tree()
-    { return storage_().tree; }
+    { return *storage_().tree; }
 
     static std::map<std::string, ::Ewoms::Parameters::ParamInfo>& mutableRegistry()
     { return storage_().registry; }
@@ -222,12 +237,19 @@ SET_PROP(ParameterSystem, ParameterMetaData)
     static const std::map<std::string, ::Ewoms::Parameters::ParamInfo>& registry()
     { return storage_().registry; }
 
-    static std::list< ::Ewoms::Parameters::ParamRegFinalizerBase_ *> &
-    registrationFinalizers()
+    static std::list<std::unique_ptr<::Ewoms::Parameters::ParamRegFinalizerBase_> > &registrationFinalizers()
     { return storage_().finalizers; }
 
     static bool& registrationOpen()
     { return storage_().registrationOpen; }
+
+    static void clear()
+    {
+        storage_().tree.reset(new Dune::ParameterTree());
+        storage_().finalizers.clear();
+        storage_().registrationOpen = true;
+        storage_().registry.clear();
+    }
 
 private:
     // this is not pretty, but handling these attributes as static variables inside
@@ -236,11 +258,14 @@ private:
     // times...
     struct Storage_ {
         Storage_()
-        { registrationOpen = true; }
+        {
+            tree.reset(new Dune::ParameterTree());
+            registrationOpen = true;
+        }
 
-        Dune::ParameterTree tree;
+        std::unique_ptr<Dune::ParameterTree> tree;
         std::map<std::string, ::Ewoms::Parameters::ParamInfo> registry;
-        std::list< ::Ewoms::Parameters::ParamRegFinalizerBase_ *> finalizers;
+        std::list<std::unique_ptr<::Ewoms::Parameters::ParamRegFinalizerBase_> > finalizers;
         bool registrationOpen;
     };
     static Storage_& storage_() {
@@ -720,6 +745,16 @@ std::string parseCommandLineOptions(int argc,
         }
         seenKeys.insert(paramName);
 
+        if (s.empty() || s[0] != '=') {
+            std::string msg =
+                std::string("Parameter '")+paramName+"' is missing a value. "
+                +" Please use "+argv[i]+"=value.";
+
+            if (!helpPreamble.empty())
+                printUsage<TypeTag>(helpPreamble, msg, std::cerr);
+            return msg;
+        }
+
         paramValue = s.substr(1);
 
         // Put the key=value pair into the parameter tree
@@ -917,10 +952,15 @@ public:
                                              errorIfNotRegistered);
     }
 
+    static void clear()
+    {
+        ParamsMeta::clear();
+    }
+
     template <class ParamType, class PropTag>
-    static const ParamType isSet(const char *propTagName,
-                                 const char *paramName,
-                                 bool errorIfNotRegistered = true)
+    static bool isSet(const char *propTagName OPM_OPTIM_UNUSED,
+                      const char *paramName OPM_OPTIM_UNUSED,
+                      bool errorIfNotRegistered = true)
     {
 
 #ifndef NDEBUG
@@ -930,7 +970,6 @@ public:
         check_(Dune::className<ParamType>(), propTagName, paramName);
 #endif
 
-        typedef typename GET_PROP(TypeTag, ParameterMetaData) ParamsMeta;
         if (errorIfNotRegistered) {
             if (ParamsMeta::registrationOpen())
                 throw std::runtime_error("Parameters can only checked after _all_ of them have "
@@ -965,7 +1004,8 @@ private:
     };
 
     static void check_(const std::string& paramTypeName,
-                       const std::string& propertyName, const char *paramName)
+                       const std::string& propertyName,
+                       const char *paramName)
     {
         typedef std::unordered_map<std::string, Blubb> StaticData;
         static StaticData staticData;
@@ -1007,7 +1047,6 @@ private:
         check_(Dune::className<ParamType>(), propTagName, paramName);
 #endif
 
-        typedef typename GET_PROP(TypeTag, ParameterMetaData) ParamsMeta;
         if (errorIfNotRegistered) {
             if (ParamsMeta::registrationOpen())
                 throw std::runtime_error("Parameters can only retieved after _all_ of them have "
@@ -1040,6 +1079,40 @@ const ParamType get(const char *propTagName, const char *paramName, bool errorIf
                                                             errorIfNotRegistered);
 }
 
+template <class TypeTag, class Container>
+void getLists(Container& usedParams, Container& unusedParams)
+{
+    usedParams.clear();
+    unusedParams.clear();
+
+    typedef typename GET_PROP(TypeTag, ParameterMetaData) ParamsMeta;
+    if (ParamsMeta::registrationOpen())
+        throw std::runtime_error("Parameter lists can only retieved after _all_ of them have "
+                                 "been registered.");
+
+    // get all parameter keys
+    std::list<std::string> allKeysList;
+    const auto& paramTree = ParamsMeta::tree();
+    getFlattenedKeyList_(allKeysList, paramTree);
+
+    for (const auto& key : allKeysList) {
+        if (ParamsMeta::registry().find(key) == ParamsMeta::registry().end()) {
+            // key was not registered
+            unusedParams.emplace_back(key, paramTree[key]);
+        }
+        else {
+            // key was registered
+            usedParams.emplace_back(key, paramTree[key]);
+        }
+    }
+}
+
+template <class TypeTag>
+void reset()
+{
+    return Param<TypeTag>::clear();
+}
+
 template <class TypeTag, class ParamType, class PropTag>
 bool isSet(const char *propTagName, const char *paramName, bool errorIfNotRegistered = true)
 {
@@ -1056,7 +1129,7 @@ void registerParam(const char *paramName, const char *propertyName, const char *
         throw std::logic_error("Parameter registration was already closed before "
                                "the parameter '"+std::string(paramName)+"' was registered.");
 
-    ParamsMeta::registrationFinalizers().push_back(
+    ParamsMeta::registrationFinalizers().emplace_back(
         new ParamRegFinalizer_<TypeTag, ParamType, PropTag>(paramName));
 
     ParamInfo paramInfo;
@@ -1117,10 +1190,9 @@ void endParamRegistration()
     // that there is no syntax error
     auto pIt = ParamsMeta::registrationFinalizers().begin();
     const auto& pEndIt = ParamsMeta::registrationFinalizers().end();
-    for (; pIt != pEndIt; ++pIt) {
+    for (; pIt != pEndIt; ++pIt)
         (*pIt)->retrieve();
-        delete *pIt;
-    }
+    ParamsMeta::registrationFinalizers().clear();
 }
 //! \endcond
 
